@@ -1,0 +1,47 @@
+{
+  "pluginAlias": "EAGLE",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "EAGLE"
+      },
+      "host": {
+        "title": "Host",
+        "type": "string",
+        "placeholder": "192.168.1.x or eagle-XXXXXX.local",
+        "description": "IP address or mDNS hostname of the EAGLE-200."
+      },
+      "cloudId": {
+        "title": "Cloud ID",
+        "type": "string",
+        "placeholder": "004792",
+        "description": "6-character Cloud ID from the label on the underside of the device."
+      },
+      "installCode": {
+        "title": "Install Code",
+        "type": "string",
+        "placeholder": "bfb0fc05f51a3932",
+        "description": "16-character Install Code from the label on the underside of the device."
+      },
+      "pollInterval": {
+        "title": "Poll Interval (seconds)",
+        "type": "integer",
+        "default": 15,
+        "minimum": 5,
+        "description": "How often to poll the EAGLE-200 for new meter data. Minimum 5 seconds."
+      },
+      "meterName": {
+        "title": "Meter Display Name",
+        "type": "string",
+        "default": "Grid Meter",
+        "description": "HomeKit display name for the grid meter accessory."
+      }
+    },
+    "required": ["host", "cloudId", "installCode"]
+  }
+}

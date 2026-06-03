@@ -1,0 +1,49 @@
+{
+  "name": "homebridge-rainforest-eagle3",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for Rainforest EAGLE-200 smart meter — Eve Energy accessory with fakegato history.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/dacarson/homebridge-rainforest-eagle3.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dacarson/homebridge-rainforest-eagle3/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "rimraf ./dist && tsc",
+    "watch": "npm run build && nodemon",
+    "lint": "eslint src/**.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "rainforest",
+    "eagle",
+    "eagle-200",
+    "smart-meter",
+    "energy"
+  ],
+  "peerDependencies": {
+    "homebridge": ">=1.6.0"
+  },
+  "dependencies": {
+    "fakegato-history": "^0.6.7",
+    "fast-xml-parser": "^4.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "homebridge": "^1.8.0",
+    "nodemon": "^3.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.4.0"
+  }
+}
