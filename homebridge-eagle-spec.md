@@ -191,7 +191,7 @@ All `<Value>` fields are ASCII text strings with embedded units (e.g. `"21.499 k
 | `zigbee:CurrentSummationDelivered` | Lifetime energy imported from grid | kWh | Eve kWh |
 | `zigbee:CurrentSummationReceived` | Lifetime energy exported to grid | kWh | Stored; future accessory |
 
-**Sign convention**: `InstantaneousDemand` is always a non-negative value — it represents demand on the grid as seen by the utility meter. It does not go negative during solar export. Net export is visible only through `SummationReceived` accumulating over time. The plugin reports demand as-is; the PVS6 plugin provides complementary solar production data.
+**Sign convention**: `InstantaneousDemand` is documented as a non-negative value, but some meters/firmware return a negative value when the home is net-exporting power to the grid (e.g., solar production exceeds consumption). The plugin reports demand as-is; negative watts indicate grid export. The `EveWatts` characteristic supports the full range [-100000, 100000]. The `On` characteristic reflects active consumption (`demand > 0`). Net export is also visible through `SummationReceived` accumulating over time. The PVS6 plugin provides complementary solar production data.
 
 **Documented meter variable list** (from `device_details`, manual p.12–13 — exact set varies by meter/firmware):
 
