@@ -16,6 +16,7 @@ export class GridMeterAccessory {
     accessory: PlatformAccessory,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     FakeGatoHistoryService: any,
+    meterAddress: string,
   ) {
     const { Characteristic, api } = platform;
     const { EveWatts, EveKWh } = platform.eveChars;
@@ -28,7 +29,7 @@ export class GridMeterAccessory {
     infoService
       .setCharacteristic(Characteristic.Manufacturer, 'Rainforest Automation')
       .setCharacteristic(Characteristic.Model, 'EAGLE-200')
-      .setCharacteristic(Characteristic.SerialNumber, accessory.UUID);
+      .setCharacteristic(Characteristic.SerialNumber, meterAddress.replace(/^0x/i, ''));
 
     // getService(string) in hap-nodejs matches by displayName/name/subtype, NOT by UUID.
     // Use services.find() to reliably look up by UUID from cache.

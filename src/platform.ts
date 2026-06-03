@@ -121,6 +121,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
         this,
         existingAccessory,
         FakeGatoHistoryService,
+        meterAddress,
       );
     } else {
       this.log.info('Registering new grid meter accessory:', this.meterName);
@@ -129,6 +130,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
         this,
         accessory,
         FakeGatoHistoryService,
+        meterAddress,
       );
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.accessories.push(accessory);
