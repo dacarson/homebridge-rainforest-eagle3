@@ -230,7 +230,7 @@ export class EagleClient {
 
     const trimmed = raw.trim();
     // Expected format: "1.234 kW" or "12345.678 kWh"
-    const match = trimmed.match(/^([\d.]+)\s*(\S+)?$/);
+    const match = trimmed.match(/^(-?[\d.]+)\s*(\S+)?$/);
     if (!match) {
       throw new Error(`Cannot parse value '${trimmed}' for ${varName}`);
     }
