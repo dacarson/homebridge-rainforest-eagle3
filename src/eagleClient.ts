@@ -30,7 +30,10 @@ export class EagleClient {
     this.parser = new XMLParser({
       ignoreAttributes: false,
       parseTagValue: false,
-      isArray: (name) => name === 'Device' || name === 'Variable',
+      // Force Device to array only inside DeviceList (device_list response).
+      // The device_query response has a single <Device> at root — must NOT be an array.
+      isArray: (name, jpath) =>
+        (name === 'Device' && jpath === 'DeviceList.Device') || name === 'Variable',
     });
   }
 
@@ -189,6 +192,8 @@ export class EagleClient {
 
         const headerSection = raw.slice(0, headerBodySplit);
         const body = raw.slice(headerBodySplit + 4);
+
+        this.log.debug(`EAGLE response: ${body.trim()}`);
 
         const statusLine = headerSection.split('\r\n')[0] ?? '';
         const statusMatch = statusLine.match(/^HTTP\/\S+\s+(\d{3})/);

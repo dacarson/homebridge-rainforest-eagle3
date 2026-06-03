@@ -30,9 +30,9 @@ export class GridMeterAccessory {
       .setCharacteristic(Characteristic.Model, 'EAGLE-200')
       .setCharacteristic(Characteristic.SerialNumber, accessory.UUID);
 
-    // Eve Energy service: look up by UUID string, create by passing an instance to addService.
-    // getService(string) matches by UUID internally in hap-nodejs.
-    const existingService = accessory.getService(EVE_ENERGY_SERVICE_UUID);
+    // getService(string) in hap-nodejs matches by displayName/name/subtype, NOT by UUID.
+    // Use services.find() to reliably look up by UUID from cache.
+    const existingService = accessory.services.find(s => s.UUID === EVE_ENERGY_SERVICE_UUID);
     if (existingService) {
       this.eveEnergyService = existingService;
     } else {

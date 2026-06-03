@@ -166,7 +166,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
           }
         } else if (err instanceof Error) {
           if (err.message.includes("not Connected")) {
-            this.log.warn(`Meter not connected to ZigBee network — skipping cycle`);
+            this.log.warn(`Meter not connected to ZigBee network — skipping cycle (${err.message})`);
           } else if (err.message.includes('timeout')) {
             this.log.warn('Poll timed out after 10s — skipping cycle');
           } else {
