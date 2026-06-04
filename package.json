@@ -24,7 +24,6 @@
     "build": "rimraf ./dist && tsc",
     "watch": "npm run build && nodemon",
     "lint": "eslint src/**.ts",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
