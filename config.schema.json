@@ -55,5 +55,20 @@
       }
     },
     "required": ["cloudId", "installCode"]
-  }
+  },
+  "layout": [
+    { "key": "name" },
+    { "key": "cloudId" },
+    { "key": "installCode" },
+    { "key": "host" },
+    { "key": "pollInterval" },
+    { "key": "meterName" },
+    { "key": "showExportMeter" },
+    {
+      "key": "exportMeterName",
+      "condition": {
+        "functionBody": "return model.showExportMeter === true;"
+      }
+    }
+  ]
 }
