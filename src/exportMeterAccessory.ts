@@ -3,13 +3,13 @@ import { EAGLEPlatform } from './platform';
 import { MeterReading } from './eagleClient';
 import { EVE_ENERGY_SERVICE_UUID } from './eveCharacteristics';
 
-export class GridMeterAccessory {
+export class ExportMeterAccessory {
   private readonly eveEnergyService: Service;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly historyService: any;
 
-  private lastDemandW = 0;
-  private lastDeliveredKwh = 0;
+  private lastExportW = 0;
+  private lastReceivedKwh = 0;
 
   constructor(
     private readonly platform: EAGLEPlatform,
@@ -21,7 +21,6 @@ export class GridMeterAccessory {
     const { Characteristic, api } = platform;
     const { EveWatts, EveKWh } = platform.eveChars;
 
-    // Accessory information service
     const infoService =
       accessory.getService(platform.Service.AccessoryInformation) ??
       accessory.addService(platform.Service.AccessoryInformation);
@@ -31,47 +30,40 @@ export class GridMeterAccessory {
       .setCharacteristic(Characteristic.Model, 'EAGLE-200')
       .setCharacteristic(Characteristic.SerialNumber, meterAddress.replace(/^0x/i, ''));
 
-    // getService(string) in hap-nodejs matches by displayName/name/subtype, NOT by UUID.
-    // Use services.find() to reliably look up by UUID from cache.
     const existingService = accessory.services.find(s => s.UUID === EVE_ENERGY_SERVICE_UUID);
     if (existingService) {
       this.eveEnergyService = existingService;
     } else {
       this.eveEnergyService = accessory.addService(
-        new api.hap.Service(platform.meterName, EVE_ENERGY_SERVICE_UUID),
+        new api.hap.Service(platform.exportMeterName, EVE_ENERGY_SERVICE_UUID),
       );
     }
 
-    this.eveEnergyService.setCharacteristic(Characteristic.Name, platform.meterName);
+    this.eveEnergyService.setCharacteristic(Characteristic.Name, platform.exportMeterName);
 
-    // On — true when grid is actively being consumed
+    // On — true when the home is actively exporting to the grid
     this.eveEnergyService
       .getCharacteristic(Characteristic.On)
-      .onGet(() => this.lastDemandW > 0)
+      .onGet(() => this.lastExportW > 0)
       .onSet(async () => {
-        // Read-only: revert to polled state immediately
         this.eveEnergyService.updateCharacteristic(
           Characteristic.On,
-          this.lastDemandW > 0,
+          this.lastExportW > 0,
         );
       });
 
-    // OutletInUse — always true (required by Eve Energy)
     this.eveEnergyService
       .getCharacteristic(Characteristic.OutletInUse)
       .onGet(() => true);
 
-    // getCharacteristic(class) finds the existing characteristic from cache or adds it if absent —
-    // unlike addCharacteristic which always adds and throws on duplicate.
     this.eveEnergyService
       .getCharacteristic(EveWatts)
-      .onGet(() => this.lastDemandW);
+      .onGet(() => this.lastExportW);
 
     this.eveEnergyService
       .getCharacteristic(EveKWh)
-      .onGet(() => this.lastDeliveredKwh);
+      .onGet(() => this.lastReceivedKwh);
 
-    // fakegato-history: 'energy' type logs { time, power } in Watts
     this.historyService = new FakeGatoHistoryService('energy', accessory, {
       storage: 'fs',
     });
@@ -81,24 +73,17 @@ export class GridMeterAccessory {
     const { Characteristic } = this.platform;
     const { EveWatts, EveKWh } = this.platform.eveChars;
 
-    this.lastDemandW = Math.round(Math.max(0, reading.demand_kw) * 1000 * 10) / 10;
-    this.lastDeliveredKwh = reading.summation_delivered_kwh;
+    this.lastExportW = Math.round(Math.max(0, -reading.demand_kw) * 1000 * 10) / 10;
+    this.lastReceivedKwh = reading.summation_received_kwh ?? 0;
 
-    this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastDemandW > 0);
+    this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastExportW > 0);
     this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
-    this.eveEnergyService.updateCharacteristic(EveWatts, this.lastDemandW);
-    this.eveEnergyService.updateCharacteristic(EveKWh, this.lastDeliveredKwh);
+    this.eveEnergyService.updateCharacteristic(EveWatts, this.lastExportW);
+    this.eveEnergyService.updateCharacteristic(EveKWh, this.lastReceivedKwh);
 
     this.historyService.addEntry({
       time: Math.round(Date.now() / 1000),
-      power: this.lastDemandW,
+      power: this.lastExportW,
     });
-
-    this.platform.log.debug(
-      `Updated: demand=${this.lastDemandW}W, delivered=${this.lastDeliveredKwh}kWh` +
-        (reading.summation_received_kwh !== undefined
-          ? `, received=${reading.summation_received_kwh}kWh`
-          : ''),
-    );
   }
 }

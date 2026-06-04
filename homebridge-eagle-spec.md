@@ -187,11 +187,11 @@ All `<Value>` fields are ASCII text strings with embedded units (e.g. `"21.499 k
 
 | ZigBee Variable | Meaning | Unit | HomeKit use |
 |---|---|---|---|
-| `zigbee:InstantaneousDemand` | Real-time grid demand | kW | Eve Watt (×1000 → W) |
-| `zigbee:CurrentSummationDelivered` | Lifetime energy imported from grid | kWh | Eve kWh |
-| `zigbee:CurrentSummationReceived` | Lifetime energy exported to grid | kWh | Stored; future accessory |
+| `zigbee:InstantaneousDemand` | Real-time grid demand | kW | Import accessory: `max(0, demand) × 1000` W. Export accessory: `max(0, −demand) × 1000` W. Each side shows non-negative watts; only one is non-zero at any given moment. |
+| `zigbee:CurrentSummationDelivered` | Lifetime energy imported from grid | kWh | Import accessory: Eve kWh |
+| `zigbee:CurrentSummationReceived` | Lifetime energy exported to grid | kWh | Export accessory (optional): Eve kWh. If meter does not return this variable, export kWh shows 0. |
 
-**Sign convention**: `InstantaneousDemand` is documented as a non-negative value, but some meters/firmware return a negative value when the home is net-exporting power to the grid (e.g., solar production exceeds consumption). The plugin reports demand as-is; negative watts indicate grid export. The `EveWatts` characteristic supports the full range [-100000, 100000]. The `On` characteristic reflects active consumption (`demand > 0`). Net export is also visible through `SummationReceived` accumulating over time. The PVS6 plugin provides complementary solar production data.
+**Sign convention**: `InstantaneousDemand` is documented as a non-negative value, but some meters/firmware return a negative value when the home is net-exporting power to the grid (e.g., solar production exceeds consumption). Both accessories clamp to non-negative watts using `max(0, ±demand × 1000)`, so they are mutually exclusive: when the home is importing, the import meter shows positive watts and the export meter shows zero, and vice versa. Net export accumulates in `SummationReceived` over time. The PVS6 plugin provides complementary solar production data.
 
 **Documented meter variable list** (from `device_details`, manual p.12–13 — exact set varies by meter/firmware):
 
@@ -209,19 +209,22 @@ zigbee:Message
 
 ---
 
-## HomeKit Accessory
+## HomeKit Accessories
 
-### Grid Meter Accessory
+### Import Meter Accessory
+
+Always registered. Shows real-time grid demand and lifetime energy imported.
 
 **Accessory type:** Eve Energy  
 **Custom HAP service UUID:** `E863F10A-079E-48FF-8F27-9C2605A29F52`  
-**Display name (configurable):** `Grid Meter`
+**Display name (configurable):** `meterName` (default: `"Grid Meter - Import"` when `showExportMeter` is `true`; `"Grid Meter"` otherwise)  
+**Platform accessory UUID:** `hap.uuid.generate(meterAddress)`
 
 | Characteristic | HAP UUID | Source | Notes |
 |---|---|---|---|
 | `On` (read-only) | `00000025` | `InstantaneousDemand > 0` | Consuming = on. The HAP `On` characteristic is technically writable; the setter is a no-op that immediately reverts to the polled state. |
 | `OutletInUse` | `00000026` | always `true` | Required by Eve Energy |
-| Eve Watt | `E863F10D` | `InstantaneousDemand × 1000` | Watts |
+| Eve Watt | `E863F10D` | `max(0, InstantaneousDemand) × 1000` | Import watts. Zero when net-exporting. |
 | Eve kWh | `E863F10C` | `CurrentSummationDelivered` | Lifetime import kWh |
 | `Name` | `00000023` | config `meterName` | |
 
@@ -233,9 +236,49 @@ Persisted to Homebridge storage directory; survives restarts.
 
 ---
 
+### Export Meter Accessory (optional)
+
+Registered only when `showExportMeter: true` in config. Shows real-time grid export and lifetime energy exported to the grid. Useful for households with solar net metering where export is reported via `CurrentSummationReceived`.
+
+**Accessory type:** Eve Energy  
+**Custom HAP service UUID:** `E863F10A-079E-48FF-8F27-9C2605A29F52`  
+**Display name (configurable):** `exportMeterName` (default: `"Grid Meter - Export"`)  
+**Platform accessory UUID:** `hap.uuid.generate(meterAddress + '-export')` — the `-export` suffix keeps it distinct from the import accessory UUID
+
+| Characteristic | HAP UUID | Source | Notes |
+|---|---|---|---|
+| `On` (read-only) | `00000025` | `InstantaneousDemand < 0` | Exporting = on. No-op setter reverts to polled state. |
+| `OutletInUse` | `00000026` | always `true` | Required by Eve Energy |
+| Eve Watt | `E863F10D` | `max(0, −InstantaneousDemand) × 1000` | Export watts (positive). Zero when not exporting. |
+| Eve kWh | `E863F10C` | `CurrentSummationReceived` | Lifetime export kWh. Shows `0` if meter does not report this variable. |
+| `Name` | `00000023` | config `exportMeterName` | |
+
+**fakegato history:** Records `{ time, power }` (W, export watts) at each successful poll.  
+History service UUID: `E863F007-079E-48FF-8F27-9C2605A29F52`.  
+Persisted to Homebridge storage directory; survives restarts.
+
+**Apple Home tile:** Renders as a smart plug. `On` = actively exporting to grid. Eve app shows export history.
+
+**When `CurrentSummationReceived` is absent:** If the meter does not return `zigbee:CurrentSummationReceived` (common — see note in Poll command section), the export kWh characteristic stays at `0`. Real-time export watts derived from negative `InstantaneousDemand` still works correctly. Log a debug message when the variable is missing rather than a warning (expected on many meters).
+
+---
+
 ## Configuration
 
 Configured via `config.json` in the Homebridge `platforms` array:
+
+Minimal config (import only):
+
+```json
+{
+  "platform": "EAGLE",
+  "name": "EAGLE",
+  "cloudId": "004792",
+  "installCode": "bfb0fc05f51a3932"
+}
+```
+
+With export meter enabled:
 
 ```json
 {
@@ -245,7 +288,9 @@ Configured via `config.json` in the Homebridge `platforms` array:
   "cloudId": "004792",
   "installCode": "bfb0fc05f51a3932",
   "pollInterval": 15,
-  "meterName": "Grid Meter"
+  "meterName": "Grid Meter - Import",
+  "showExportMeter": true,
+  "exportMeterName": "Grid Meter - Export"
 }
 ```
 
@@ -259,7 +304,9 @@ The device is also reachable via mDNS hostname `eagle-<cloudId>.local` if a stat
 | `cloudId` | string | yes | — | Cloud ID from device label (upper-left, 6 hex chars) |
 | `installCode` | string | yes | — | Install Code from device label (16 hex chars) |
 | `pollInterval` | integer | no | `15` | Seconds between polls. Minimum enforced: `5` |
-| `meterName` | string | no | `"Grid Meter"` | HomeKit display name |
+| `meterName` | string | no | `"Grid Meter - Import"` if `showExportMeter` is `true`, otherwise `"Grid Meter"` | HomeKit display name for the import accessory |
+| `showExportMeter` | boolean | no | `false` | Register a second Eve Energy accessory for grid export (net metering / solar). |
+| `exportMeterName` | string | no | `"Grid Meter - Export"` | HomeKit display name for the export accessory. Only used when `showExportMeter` is `true`. |
 
 ---
 
@@ -300,8 +347,8 @@ Accessories remain visible in HomeKit during outages; characteristic values free
 | Data format | JSON (varserver key/value) | XML fragments |
 | Startup | Build varserver cache IDs | Discover meter `HardwareAddress` |
 | Value format | Native float in JSON | ASCII string with unit suffix |
-| Accessories | Solar + Grid (each optional) | Grid only |
-| Negative power | `net_p` goes negative on export | `InstantaneousDemand` always ≥ 0 |
+| Accessories | Solar + Grid (each optional) | Grid import (always) + Grid export (optional, `showExportMeter`) |
+| Negative power | `net_p` goes negative on export | Raw `InstantaneousDemand` may go negative; split across import/export accessories via `max(0, ±demand)` |
 
 ---
 
@@ -324,7 +371,8 @@ homebridge-eagle/
 │   ├── index.ts                  — Homebridge platform registration
 │   ├── platform.ts               — EAGLEPlatform class, accessory lifecycle
 │   ├── eagleClient.ts            — HTTP POST, XML parsing, device discovery, polling
-│   ├── gridMeterAccessory.ts     — Grid HomeKit accessory + fakegato
+│   ├── gridMeterAccessory.ts     — Import meter HomeKit accessory + fakegato
+│   ├── exportMeterAccessory.ts   — Export meter HomeKit accessory + fakegato (optional)
 │   └── eveCharacteristics.ts    — Eve custom UUID definitions
 ├── config.schema.json
 ├── package.json
@@ -356,7 +404,6 @@ Node.js ≥ 18 required.
 
 ## Out of Scope (v1)
 
-- `CurrentSummationReceived` as a separate HomeKit accessory (lifetime export kWh)
 - Utility price / tariff data (`zigbee:Price`, `zigbee:PriceTier`)
 - Utility push messages (`zigbee:Message`, `confirm_message`)
 - Fast-poll mode (`set_fast_poll` ZigBee SEP 1.1 command)
@@ -368,7 +415,6 @@ Node.js ≥ 18 required.
 
 ## Future Considerations
 
-- `CurrentSummationReceived` as a second read-only Eve Energy accessory for lifetime solar export kWh (net metering tracking)
 - A derived `Net Power` value combining EAGLE demand with PVS6 production — could live in a separate aggregator platform plugin
 - Prometheus metrics sidecar endpoint (consistent pattern with homebridge-pvs6)
 - `device_details` diagnostic command exposed via a Homebridge UI button for troubleshooting
@@ -436,10 +482,6 @@ this.eveEnergyService
     this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastDemandW > 0);
   });
 ```
-
-### Eve Watt `minValue` Must Be Negative
-
-The default `minValue` for a custom float characteristic is `0`. For an energy monitor that can observe net export (solar), the demand value goes negative. Set `minValue: -100000` on `EveWatts` or the Eve app will silently clamp all negative values to zero and history will be wrong.
 
 ### TypeScript Pattern for Custom Characteristic Classes
 

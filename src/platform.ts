@@ -11,6 +11,7 @@ import {
 import { PLATFORM_NAME, PLUGIN_NAME, EAGLEConfig } from './settings';
 import { EagleClient, HttpError } from './eagleClient';
 import { GridMeterAccessory } from './gridMeterAccessory';
+import { ExportMeterAccessory } from './exportMeterAccessory';
 import { createEveCharacteristics, EveChars } from './eveCharacteristics';
 
 const MIN_POLL_INTERVAL = 5;
@@ -25,11 +26,14 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   public readonly accessories: PlatformAccessory[] = [];
   public readonly eveChars: EveChars;
   public readonly meterName: string;
+  public readonly showExportMeter: boolean;
+  public readonly exportMeterName: string;
 
   private readonly client: EagleClient;
   private readonly pollIntervalMs: number;
 
   private gridMeterAccessory?: GridMeterAccessory;
+  private exportMeterAccessory?: ExportMeterAccessory;
   private pollTimer?: ReturnType<typeof setInterval>;
   private pollInFlight = false;
   private backedOff = false;
@@ -50,7 +54,9 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       // Platform will do nothing; Homebridge still loads cleanly.
       this.client = new EagleClient('', '', '', log);
       this.pollIntervalMs = MIN_POLL_INTERVAL * 1000;
+      this.showExportMeter = false;
       this.meterName = 'Grid Meter';
+      this.exportMeterName = 'Grid Meter - Export';
       return;
     }
 
@@ -67,7 +73,9 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       pollInterval = MIN_POLL_INTERVAL;
     }
     this.pollIntervalMs = pollInterval * 1000;
-    this.meterName = eagleConfig.meterName ?? 'Grid Meter';
+    this.showExportMeter = eagleConfig.showExportMeter ?? false;
+    this.exportMeterName = eagleConfig.exportMeterName ?? 'Grid Meter - Export';
+    this.meterName = eagleConfig.meterName ?? (this.showExportMeter ? 'Grid Meter - Import' : 'Grid Meter');
 
     this.client = new EagleClient(
       host,
@@ -115,30 +123,52 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const FakeGatoHistoryService = require('fakegato-history')(this.api);
 
-    const uuid = this.api.hap.uuid.generate(meterAddress);
-    const existingAccessory = this.accessories.find((a) => a.UUID === uuid);
+    // --- Import meter ---
+    const importUuid = this.api.hap.uuid.generate(meterAddress);
+    const existingImport = this.accessories.find((a) => a.UUID === importUuid);
 
-    if (existingAccessory) {
-      this.log.info('Restoring grid meter accessory from cache:', existingAccessory.displayName);
-      existingAccessory.displayName = this.meterName;
-      this.api.updatePlatformAccessories([existingAccessory]);
+    if (existingImport) {
+      this.log.info('Restoring import meter accessory from cache:', existingImport.displayName);
+      existingImport.displayName = this.meterName;
+      this.api.updatePlatformAccessories([existingImport]);
       this.gridMeterAccessory = new GridMeterAccessory(
-        this,
-        existingAccessory,
-        FakeGatoHistoryService,
-        meterAddress,
+        this, existingImport, FakeGatoHistoryService, meterAddress,
       );
     } else {
-      this.log.info('Registering new grid meter accessory:', this.meterName);
-      const accessory = new this.api.platformAccessory(this.meterName, uuid);
+      this.log.info('Registering new import meter accessory:', this.meterName);
+      const accessory = new this.api.platformAccessory(this.meterName, importUuid);
       this.gridMeterAccessory = new GridMeterAccessory(
-        this,
-        accessory,
-        FakeGatoHistoryService,
-        meterAddress,
+        this, accessory, FakeGatoHistoryService, meterAddress,
       );
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.accessories.push(accessory);
+    }
+
+    // --- Export meter ---
+    const exportUuid = this.api.hap.uuid.generate(meterAddress + '-export');
+    const existingExport = this.accessories.find((a) => a.UUID === exportUuid);
+
+    if (this.showExportMeter) {
+      if (existingExport) {
+        this.log.info('Restoring export meter accessory from cache:', existingExport.displayName);
+        existingExport.displayName = this.exportMeterName;
+        this.api.updatePlatformAccessories([existingExport]);
+        this.exportMeterAccessory = new ExportMeterAccessory(
+          this, existingExport, FakeGatoHistoryService, meterAddress,
+        );
+      } else {
+        this.log.info('Registering new export meter accessory:', this.exportMeterName);
+        const accessory = new this.api.platformAccessory(this.exportMeterName, exportUuid);
+        this.exportMeterAccessory = new ExportMeterAccessory(
+          this, accessory, FakeGatoHistoryService, meterAddress,
+        );
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.accessories.push(accessory);
+      }
+    } else if (existingExport) {
+      // showExportMeter was disabled — remove the stale cached accessory
+      this.log.info('Removing stale export meter accessory');
+      this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingExport]);
     }
   }
 
@@ -157,6 +187,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       try {
         const reading = await this.client.queryMeter(meterAddress);
         this.gridMeterAccessory?.updateValues(reading);
+        this.exportMeterAccessory?.updateValues(reading);
       } catch (err) {
         if (err instanceof HttpError) {
           if (err.statusCode === 401) {

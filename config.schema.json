@@ -36,10 +36,22 @@
         "description": "How often to poll the EAGLE-200 for new meter data. Minimum 5 seconds."
       },
       "meterName": {
-        "title": "Meter Display Name",
+        "title": "Import Meter Display Name",
         "type": "string",
         "default": "Grid Meter",
-        "description": "HomeKit display name for the grid meter accessory."
+        "description": "HomeKit display name for the import meter accessory. Defaults to 'Grid Meter - Import' when showExportMeter is true."
+      },
+      "showExportMeter": {
+        "title": "Show Export Meter",
+        "type": "boolean",
+        "default": false,
+        "description": "Register a second Eve Energy accessory showing power exported to the grid (net metering / solar)."
+      },
+      "exportMeterName": {
+        "title": "Export Meter Display Name",
+        "type": "string",
+        "default": "Grid Meter - Export",
+        "description": "HomeKit display name for the export meter accessory. Only used when showExportMeter is true."
       }
     },
     "required": ["cloudId", "installCode"]

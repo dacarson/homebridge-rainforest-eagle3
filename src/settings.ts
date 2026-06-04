@@ -9,4 +9,6 @@ export interface EAGLEConfig extends PlatformConfig {
   installCode: string;
   pollInterval?: number;
   meterName?: string;
+  showExportMeter?: boolean;
+  exportMeterName?: string;
 }

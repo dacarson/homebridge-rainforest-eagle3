@@ -22,7 +22,7 @@ export function createEveCharacteristics(api: API): EveChars {
       super('Eve Watts', EveWatts.UUID, {
         format: Formats.FLOAT,
         unit: 'W' as string,
-        minValue: -100000,
+        minValue: 0,
         maxValue: 100000,
         minStep: 0.1,
         perms: [Perms.PAIRED_READ, Perms.NOTIFY],

@@ -8,7 +8,8 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 
 - Real-time grid demand in Watts (visible in the Eve app and HomeKit detail view)
 - Cumulative energy imported (kWh) as a lifetime total
-- Up to 7 days of native consumption history in the Eve app via [fakegato-history](https://github.com/simont77/fakegato-history)
+- Optional **export meter** accessory for homes with solar net metering — shows real-time export watts and lifetime energy exported to the grid
+- Up to 7 days of native consumption/export history in the Eve app via [fakegato-history](https://github.com/simont77/fakegato-history)
 - Polls the EAGLE-200 **local** HTTP API — no cloud account or internet required at runtime
 - Stateless Basic Auth — no session management, no re-login lifecycle
 - Designed to complement [homebridge-pvs6](https://github.com/dacarson/homebridge-pvs6) for a complete solar + grid picture in Apple Home
@@ -58,7 +59,9 @@ npm install -g homebridge-rainforest-eagle3
 
 ## Configuration
 
-Add a platform entry to your Homebridge `config.json`:
+Add a platform entry to your Homebridge `config.json`.
+
+Minimal setup (import meter only):
 
 ```json
 {
@@ -66,11 +69,27 @@ Add a platform entry to your Homebridge `config.json`:
     {
       "platform": "EAGLE",
       "name": "EAGLE",
-      "host": "192.168.1.x",
+      "cloudId": "004792",
+      "installCode": "bfb0fc05f51a3932"
+    }
+  ]
+}
+```
+
+With export meter enabled (for solar / net metering):
+
+```json
+{
+  "platforms": [
+    {
+      "platform": "EAGLE",
+      "name": "EAGLE",
       "cloudId": "004792",
       "installCode": "bfb0fc05f51a3932",
       "pollInterval": 15,
-      "meterName": "Grid Meter"
+      "meterName": "Grid Meter - Import",
+      "showExportMeter": true,
+      "exportMeterName": "Grid Meter - Export"
     }
   ]
 }
@@ -81,11 +100,13 @@ Add a platform entry to your Homebridge `config.json`:
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `platform` | string | yes | — | Must be `EAGLE` |
-| `host` | string | yes | — | IP address or mDNS hostname (e.g. `eagle-004792.local`) of the EAGLE-200 |
+| `host` | string | no | `eagle-<cloudId>.local` | IP address or mDNS hostname of the EAGLE-200. Omit to use mDNS auto-discovery. |
 | `cloudId` | string | yes | — | Cloud ID from the device label (6 hex characters, upper-left of label) |
 | `installCode` | string | yes | — | Install Code from the device label (16 hex characters) |
 | `pollInterval` | integer | no | `15` | Seconds between polls. Minimum enforced: `5` |
-| `meterName` | string | no | `"Grid Meter"` | Display name for the HomeKit accessory |
+| `meterName` | string | no | `"Grid Meter"` | Display name for the import meter accessory. Defaults to `"Grid Meter - Import"` when `showExportMeter` is `true`. |
+| `showExportMeter` | boolean | no | `false` | Register a second accessory showing power exported to the grid. |
+| `exportMeterName` | string | no | `"Grid Meter - Export"` | Display name for the export meter accessory. |
 
 ### Finding Your Credentials
 
@@ -98,18 +119,29 @@ The device is also reachable at `eagle-<cloudId>.local` via mDNS if you prefer n
 
 ---
 
-## HomeKit Accessory
+## HomeKit Accessories
 
-The plugin registers a single **Grid Meter** accessory using the Eve Energy service UUID.
+### Import Meter (always registered)
 
 | Characteristic | Source | Notes |
 |---|---|---|
-| On | `InstantaneousDemand > 0` | True when consuming grid power |
+| On | `demand > 0` | True when consuming grid power |
 | OutletInUse | Always `true` | Required by Eve Energy |
-| Eve Watts | `InstantaneousDemand × 1000` | Real-time power in Watts |
-| Eve kWh | `CurrentSummationDelivered` | Lifetime import energy |
+| Eve Watts | `max(0, demand) × 1000` | Import watts. Zero when net-exporting. |
+| Eve kWh | `CurrentSummationDelivered` | Lifetime energy imported from grid |
 
-**Note on net export:** `InstantaneousDemand` is always non-negative — it does not go negative during solar export. Net export is visible only through `CurrentSummationReceived` accumulating over time, which is stored internally but not yet exposed as a separate accessory.
+### Export Meter (optional — `showExportMeter: true`)
+
+| Characteristic | Source | Notes |
+|---|---|---|
+| On | `demand < 0` | True when exporting to the grid |
+| OutletInUse | Always `true` | Required by Eve Energy |
+| Eve Watts | `max(0, −demand) × 1000` | Export watts. Zero when not exporting. |
+| Eve kWh | `CurrentSummationReceived` | Lifetime energy exported to grid. Shows `0` if the meter does not report this variable. |
+
+The two accessories are mutually exclusive — at any given moment only one shows a non-zero wattage. Both render as smart plugs in Apple Home; the Eve app shows up to 7 days of history for each.
+
+**Note on `CurrentSummationReceived`:** Many meters and firmware versions do not report this variable. When it is absent, the export kWh characteristic stays at `0`, but the real-time export watts (derived from a negative `InstantaneousDemand`) still work correctly.
 
 ---
 
