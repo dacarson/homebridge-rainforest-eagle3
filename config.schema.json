@@ -10,12 +10,6 @@
         "type": "string",
         "default": "EAGLE"
       },
-      "host": {
-        "title": "Host",
-        "type": "string",
-        "placeholder": "192.168.1.x or eagle-XXXXXX.local",
-        "description": "IP address or mDNS hostname of the EAGLE-200."
-      },
       "cloudId": {
         "title": "Cloud ID",
         "type": "string",
@@ -27,6 +21,12 @@
         "type": "string",
         "placeholder": "bfb0fc05f51a3932",
         "description": "16-character Install Code from the label on the underside of the device."
+      },
+      "host": {
+        "title": "Host",
+        "type": "string",
+        "placeholder": "192.168.1.x or eagle-XXXXXX.local",
+        "description": "IP address or mDNS hostname of the EAGLE-200. If omitted, defaults to eagle-<cloudId>.local (mDNS)."
       },
       "pollInterval": {
         "title": "Poll Interval (seconds)",
@@ -42,6 +42,6 @@
         "description": "HomeKit display name for the grid meter accessory."
       }
     },
-    "required": ["host", "cloudId", "installCode"]
+    "required": ["cloudId", "installCode"]
   }
 }

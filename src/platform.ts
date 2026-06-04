@@ -45,13 +45,18 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
 
     const eagleConfig = config as EAGLEConfig;
 
-    if (!eagleConfig.host || !eagleConfig.cloudId || !eagleConfig.installCode) {
-      this.log.error('Missing required config: host, cloudId, and installCode are required.');
+    if (!eagleConfig.cloudId || !eagleConfig.installCode) {
+      this.log.error('Missing required config: cloudId and installCode are required.');
       // Platform will do nothing; Homebridge still loads cleanly.
       this.client = new EagleClient('', '', '', log);
       this.pollIntervalMs = MIN_POLL_INTERVAL * 1000;
       this.meterName = 'Grid Meter';
       return;
+    }
+
+    const host = eagleConfig.host || `eagle-${eagleConfig.cloudId}.local`;
+    if (!eagleConfig.host) {
+      this.log.info(`No host configured — using mDNS default: ${host}`);
     }
 
     let pollInterval = eagleConfig.pollInterval ?? 15;
@@ -65,7 +70,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     this.meterName = eagleConfig.meterName ?? 'Grid Meter';
 
     this.client = new EagleClient(
-      eagleConfig.host,
+      host,
       eagleConfig.cloudId,
       eagleConfig.installCode,
       log,

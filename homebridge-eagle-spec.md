@@ -255,7 +255,7 @@ The device is also reachable via mDNS hostname `eagle-<cloudId>.local` if a stat
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `host` | string | yes | — | IP address or mDNS hostname of EAGLE-200 |
+| `host` | string | no | `eagle-<cloudId>.local` | IP address or mDNS hostname of EAGLE-200. Omit to use mDNS auto-discovery. |
 | `cloudId` | string | yes | — | Cloud ID from device label (upper-left, 6 hex chars) |
 | `installCode` | string | yes | — | Install Code from device label (16 hex chars) |
 | `pollInterval` | integer | no | `15` | Seconds between polls. Minimum enforced: `5` |
@@ -372,3 +372,182 @@ Node.js ≥ 18 required.
 - A derived `Net Power` value combining EAGLE demand with PVS6 production — could live in a separate aggregator platform plugin
 - Prometheus metrics sidecar endpoint (consistent pattern with homebridge-pvs6)
 - `device_details` diagnostic command exposed via a Homebridge UI button for troubleshooting
+
+---
+
+## Implementation Learnings — Homebridge / Eve Energy Plugin
+
+Lessons discovered while building this plugin. Recorded here so they transfer directly to the next HomeKit Eve plugin without repeating the same debugging cycles.
+
+### Custom Eve Service: find by UUID, not `getService()`
+
+`accessory.getService(string)` in hap-nodejs matches by `displayName`, `name`, or `subtype` — **not** by UUID. After a Homebridge restart the cached accessory's Eve service will not be found, and a duplicate service will be added, causing errors. The correct pattern:
+
+```typescript
+const existingService = accessory.services.find(s => s.UUID === EVE_ENERGY_SERVICE_UUID);
+if (existingService) {
+  this.eveEnergyService = existingService;
+} else {
+  this.eveEnergyService = accessory.addService(
+    new api.hap.Service(displayName, EVE_ENERGY_SERVICE_UUID),
+  );
+}
+```
+
+### Custom Eve Characteristics: `getCharacteristic()` not `addCharacteristic()`
+
+`addCharacteristic()` **always** adds a new instance and throws `DuplicateCharacteristicError` on the second Homebridge start (because the characteristic already exists in the cached service). Use `getCharacteristic(CharClass)` instead — it returns the existing instance from cache, or adds it if it is genuinely absent:
+
+```typescript
+// Correct — idempotent across restarts
+this.eveEnergyService.getCharacteristic(EveWatts).onGet(() => this.lastDemandW);
+
+// Wrong — throws on restart
+this.eveEnergyService.addCharacteristic(EveWatts).onGet(() => this.lastDemandW);
+```
+
+### Eve Energy Service Instantiation
+
+The Eve Energy service UUID (`E863F10A-079E-48FF-8F27-9C2605A29F52`) is not in the standard HAP service registry. Instantiate it directly:
+
+```typescript
+new api.hap.Service(displayName, EVE_ENERGY_SERVICE_UUID)
+```
+
+Do **not** use a built-in service type like `Service.Outlet` — the Eve app won't recognise it without the correct UUID.
+
+### `OutletInUse` Is Required
+
+The Eve Energy accessory model requires the `OutletInUse` characteristic (`00000026`). Omitting it can cause the accessory to render incorrectly in the Eve app. Wire it to always return `true`:
+
+```typescript
+this.eveEnergyService.getCharacteristic(Characteristic.OutletInUse).onGet(() => true);
+```
+
+### The `On` Characteristic Must Have a No-op Setter
+
+HAP's `On` characteristic (`00000025`) is defined as read/write. Without a setter, hap-nodejs logs a warning. With a writable setter that does nothing, HomeKit can toggle the tile momentarily. The correct pattern is to immediately revert to the polled state:
+
+```typescript
+this.eveEnergyService
+  .getCharacteristic(Characteristic.On)
+  .onGet(() => this.lastDemandW > 0)
+  .onSet(async () => {
+    this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastDemandW > 0);
+  });
+```
+
+### Eve Watt `minValue` Must Be Negative
+
+The default `minValue` for a custom float characteristic is `0`. For an energy monitor that can observe net export (solar), the demand value goes negative. Set `minValue: -100000` on `EveWatts` or the Eve app will silently clamp all negative values to zero and history will be wrong.
+
+### TypeScript Pattern for Custom Characteristic Classes
+
+hap-nodejs expects characteristic constructors typed as `{ new(): Characteristic; UUID: string }`. The inner class inheriting from `hap.Characteristic` does not satisfy this constraint without a cast:
+
+```typescript
+export type EveCharClass = { new(): Characteristic; UUID: string };
+
+return {
+  EveWatts: EveWatts as unknown as EveCharClass,
+  EveKWh:   EveKWh   as unknown as EveCharClass,
+};
+```
+
+Use `as unknown as EveCharClass` — a direct cast fails TypeScript's strict checks.
+
+### Custom Unit Strings in Characteristics
+
+HAP's `unit` property is typed as a `Units` enum, which does not include `'W'` or `'kWh'`. Cast to `string` to use non-standard unit labels:
+
+```typescript
+unit: 'W' as string,
+```
+
+### Stable Accessory UUID from Hardware Identity
+
+Generate the platform accessory UUID from a stable hardware identifier (e.g., the meter's hardware address) so that cached accessories survive Homebridge restarts without being re-registered:
+
+```typescript
+const uuid = this.api.hap.uuid.generate(meterAddress);
+```
+
+Using the config `name` or a hardcoded string breaks caching when the name changes or when multiple instances of the plugin run.
+
+### Serial Number: Strip `0x` Prefix
+
+Hardware addresses returned by device APIs include a `0x` hex prefix. Strip it for the HomeKit `SerialNumber` characteristic — HomeKit displays it directly to the user:
+
+```typescript
+infoService.setCharacteristic(Characteristic.SerialNumber, meterAddress.replace(/^0x/i, ''));
+```
+
+### fakegato-history: Load After `didFinishLaunching`
+
+`fakegato-history` must be loaded via `require()` (not `import`) and called **after** the Homebridge `api` object is fully initialised — i.e., inside the `didFinishLaunching` callback, not in the platform constructor:
+
+```typescript
+// Inside registerOrRestoreAccessory(), called from didFinishLaunching handler:
+const FakeGatoHistoryService = require('fakegato-history')(this.api);
+this.historyService = new FakeGatoHistoryService('energy', accessory, { storage: 'fs' });
+```
+
+Passing `{ storage: 'fs' }` is required for history to persist across restarts; without it, history is in-memory only.
+
+### fakegato `addEntry` Format for `energy` Type
+
+The energy history type expects `{ time, power }` with:
+- `time`: Unix timestamp in **seconds** (not milliseconds) — `Math.round(Date.now() / 1000)`
+- `power`: Watts (not kW)
+
+```typescript
+this.historyService.addEntry({
+  time: Math.round(Date.now() / 1000),
+  power: this.lastDemandW,   // already in Watts
+});
+```
+
+### `fast-xml-parser`: Force Arrays and Disable Tag-value Coercion
+
+Two parser options are critical for reliable XML parsing:
+
+1. **`parseTagValue: false`** — prevents automatic coercion of numeric strings to `number`. Keeps all values as strings so they can be parsed consistently by application code.
+
+2. **`isArray` callback** — without it, a response containing a single `<Device>` or `<Variable>` element is parsed as an object (not an array), breaking `Array.isArray()` checks. Declare which element names are always arrays:
+
+```typescript
+new XMLParser({
+  ignoreAttributes: false,
+  parseTagValue: false,
+  isArray: (name, jpath) =>
+    (name === 'Device' && jpath === 'DeviceList.Device') || name === 'Variable',
+});
+```
+
+The `jpath` guard on `Device` is important: the `device_list` response wraps devices in `<DeviceList>` (array context), but the `device_query` response returns a single `<Device>` at the root — that one must **not** be forced into an array.
+
+### `pollInFlight` Guard for Overlapping Polls
+
+`setInterval` fires regardless of whether the previous async operation has completed. On a slow or unresponsive device this causes overlapping requests, which can overwhelm an embedded HTTP server. Guard with a boolean flag:
+
+```typescript
+if (this.pollInFlight) return;
+this.pollInFlight = true;
+try {
+  await this.client.queryMeter(address);
+} finally {
+  this.pollInFlight = false;
+}
+```
+
+### `displayName` in `package.json` for Homebridge Plugin Registry
+
+The Homebridge plugin registry UI uses the `"displayName"` field in `package.json` (distinct from `"name"`) as the human-readable label shown in the UI. Without it, the raw npm package name is shown:
+
+```json
+{
+  "name": "homebridge-rainforest-eagle3",
+  "displayName": "Eagle 3",
+  ...
+}
+```
