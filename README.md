@@ -30,6 +30,8 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 
 The EAGLE-200 connects to your utility smart meter over ZigBee (HAN) and exposes live meter data over a local HTTP API. This plugin polls that API every `pollInterval` seconds and publishes the data as a HomeKit accessory. All communication is on your local network — no external services involved.
 
+The EAGLE-200's embedded HTTP server requires HTTP/1.0. Standard HTTP libraries (axios, fetch) negotiate HTTP/1.1 and are incompatible, so the plugin uses raw TCP sockets to communicate with the device.
+
 The accessory renders as a **smart plug** in Apple Home:
 
 - **On** — the outlet is "in use" when the grid is actively delivering power (demand > 0 W)
@@ -40,7 +42,7 @@ The accessory renders as a **smart plug** in Apple Home:
 
 ## Requirements
 
-- [Homebridge](https://homebridge.io) v1.6 or later
+- [Homebridge](https://homebridge.io) v2.0 or later
 - Node.js 18 or later
 - Rainforest EAGLE-200 on the same local network as your Homebridge host
 - The EAGLE-200's **Cloud ID** and **Install Code** (printed on the label on the underside of the device)
@@ -150,7 +152,8 @@ The two accessories are mutually exclusive — at any given moment only one show
 The plugin is designed to be resilient to transient EAGLE-200 failures:
 
 - If the EAGLE is unreachable at startup, discovery retries every 30 seconds
-- Poll cycles are skipped (not fatal) on timeout, XML parse errors, or HTTP 5xx responses
+- If the EAGLE responds but reports no electric meter device, discovery retries every 60 seconds
+- Poll cycles are skipped (not fatal) on timeout, XML parse errors, HTTP 5xx responses, or when the meter's ZigBee connection status is not "connected"
 - HTTP 401 triggers a 60-second backoff and an error log (check your credentials)
 - The EAGLE's embedded HTTP server can be overwhelmed by frequent polling; the default 15-second interval is conservative by design
 - HomeKit characteristics retain their last known-good values during outages
