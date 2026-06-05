@@ -2,7 +2,7 @@
   "name": "homebridge-rainforest-eagle3",
   "displayName": "Eagle 3",
   "version": "1.0.0",
-  "description": "Homebridge plugin for Rainforest EAGLE-200 smart meter — Eve Energy accessory with fakegato history.",
+  "description": "Homebridge plugin for Rainforest EAGLE-3 smart meter — Eve Energy accessory with fakegato history.",
   "author": {
     "name": "David Carson",
     "email": "dacarson@gmail.com",

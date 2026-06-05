@@ -1,6 +1,6 @@
 # homebridge-rainforest-eagle3
 
-A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGLE-200](https://www.rainforestautomation.com/rfa-z114-eagle-200/) smart meter gateway. Exposes your utility grid meter as an **Eve Energy** accessory in Apple HomeKit, with real-time power demand, cumulative import energy, and native Eve app consumption history.
+A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGLE-3](https://www.rainforestautomation.com) smart meter gateway. Exposes your utility grid meter as an **Eve Energy** accessory in Apple HomeKit, with real-time power demand, cumulative import energy, and native Eve app consumption history.
 
 ---
 
@@ -10,7 +10,7 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 - Cumulative energy imported (kWh) as a lifetime total
 - Optional **export meter** accessory for homes with solar net metering — shows real-time export watts and lifetime energy exported to the grid
 - Up to 7 days of native consumption/export history in the Eve app via [fakegato-history](https://github.com/simont77/fakegato-history)
-- Polls the EAGLE-200 **local** HTTP API — no cloud account or internet required at runtime
+- Polls the EAGLE-3 **local** HTTP API — no cloud account or internet required at runtime
 - Stateless Basic Auth — no session management, no re-login lifecycle
 - Designed to complement [homebridge-pvs6](https://github.com/dacarson/homebridge-pvs6) for a complete solar + grid picture in Apple Home
 
@@ -20,17 +20,17 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 
 | Device | Status |
 |---|---|
-| Rainforest EAGLE-200 (RFA-Z114) | Supported |
-| Rainforest EAGLE-3 | Expected compatible (uses same local API; unverified) |
+| Rainforest EAGLE-3 | Tested |
+| Rainforest EAGLE-200 (RFA-Z114) | Expected compatible — uses the same local API; unverified |
 | Original EAGLE (Z109) | Not supported — uses a different relay-server API |
 
 ---
 
 ## How It Works
 
-The EAGLE-200 connects to your utility smart meter over ZigBee (HAN) and exposes live meter data over a local HTTP API. This plugin polls that API every `pollInterval` seconds and publishes the data as a HomeKit accessory. All communication is on your local network — no external services involved.
+The EAGLE-3 connects to your utility smart meter over ZigBee (HAN) and exposes live meter data over a local HTTP API. This plugin polls that API every `pollInterval` seconds and publishes the data as a HomeKit accessory. All communication is on your local network — no external services involved.
 
-The EAGLE-200's embedded HTTP server requires HTTP/1.0. Standard HTTP libraries (axios, fetch) negotiate HTTP/1.1 and are incompatible, so the plugin uses raw TCP sockets to communicate with the device.
+The EAGLE-3's embedded HTTP server requires HTTP/1.0. Standard HTTP libraries (axios, fetch) negotiate HTTP/1.1 and are incompatible, so the plugin uses raw TCP sockets to communicate with the device.
 
 The accessory renders as a **smart plug** in Apple Home:
 
@@ -44,8 +44,8 @@ The accessory renders as a **smart plug** in Apple Home:
 
 - [Homebridge](https://homebridge.io) v2.0 or later
 - Node.js 18 or later
-- Rainforest EAGLE-200 on the same local network as your Homebridge host
-- The EAGLE-200's **Cloud ID** and **Install Code** (printed on the label on the underside of the device)
+- Rainforest EAGLE-3 on the same local network as your Homebridge host
+- The EAGLE-3's **Cloud ID** and **Install Code** (printed on the label on the underside of the device)
 
 ---
 
@@ -102,7 +102,7 @@ With export meter enabled (for solar / net metering):
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `platform` | string | yes | — | Must be `EAGLE` |
-| `host` | string | no | `eagle-<cloudId>.local` | IP address or mDNS hostname of the EAGLE-200. Omit to use mDNS auto-discovery. |
+| `host` | string | no | `eagle-<cloudId>.local` | IP address or mDNS hostname of the EAGLE-3. Omit to use mDNS auto-discovery. |
 | `cloudId` | string | yes | — | Cloud ID from the device label (6 hex characters, upper-left of label) |
 | `installCode` | string | yes | — | Install Code from the device label (16 hex characters) |
 | `pollInterval` | integer | no | `15` | Seconds between polls. Minimum enforced: `5` |
@@ -112,7 +112,7 @@ With export meter enabled (for solar / net metering):
 
 ### Finding Your Credentials
 
-Flip the EAGLE-200 over and look at the label. You need:
+Flip the EAGLE-3 over and look at the label. You need:
 
 - **Cloud ID** — 6-character hex string in the upper-left (e.g. `004792`)
 - **Install Code** — 16-character hex string below the Cloud ID (e.g. `bfb0fc05f51a3932`)
@@ -149,7 +149,7 @@ The two accessories are mutually exclusive — at any given moment only one show
 
 ## Error Handling
 
-The plugin is designed to be resilient to transient EAGLE-200 failures:
+The plugin is designed to be resilient to transient EAGLE-3 failures:
 
 - If the EAGLE is unreachable at startup, discovery retries every 30 seconds
 - If the EAGLE responds but reports no electric meter device, discovery retries every 60 seconds
