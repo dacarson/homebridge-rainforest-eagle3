@@ -2,6 +2,9 @@
 
 A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGLE-3](https://www.rainforestautomation.com) smart meter gateway. Exposes your utility grid meter as an **Eve Energy** accessory in Apple HomeKit, with real-time power demand, cumulative import energy, and native Eve app consumption history.
 
+<img width="300" alt="Grid Meter - Export" src="https://github.com/user-attachments/assets/9f2bfed2-6ab8-45e0-ab5b-d5ac91f5a38a" />
+<img width="300" alt="Grid Meter - Import" src="https://github.com/user-attachments/assets/3c0cba11-386a-4185-bd54-f1c0861454dc" />
+
 ---
 
 ## Features
