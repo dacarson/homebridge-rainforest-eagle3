@@ -1,4 +1,7 @@
 # homebridge-rainforest-eagle3
+[![License: MIT](https://img.shields.io/github/license/dacarson/homebridge-rainforest-eagle3)](LICENSE)
+[![Version](https://img.shields.io/github/v/release/dacarson/homebridge-rainforest-eagle3)](https://github.com/dacarson/homebridge-rainforest-eagle3/releases)
+[![npm downloads](https://img.shields.io/npm/dt/homebridge-rainforest-eagle3)](https://www.npmjs.com/package/homebridge-rainforest-eagle3)
 
 A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGLE-3](https://www.rainforestautomation.com) smart meter gateway. Exposes your utility grid meter as an **Eve Energy** accessory in Apple HomeKit, with real-time power demand, cumulative import energy, and native Eve app consumption history.
 
