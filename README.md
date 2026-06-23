@@ -18,7 +18,6 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 - Up to 7 days of native consumption/export history in the Eve app via [fakegato-history](https://github.com/simont77/fakegato-history)
 - Polls the EAGLE-3 **local** HTTP API — no cloud account or internet required at runtime
 - Stateless Basic Auth — no session management, no re-login lifecycle
-- Designed to complement [homebridge-pvs6](https://github.com/dacarson/homebridge-pvs6) for a complete solar + grid picture in Apple Home
 
 ---
 
