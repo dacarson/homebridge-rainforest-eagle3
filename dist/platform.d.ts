@@ -10,10 +10,12 @@ export declare class EAGLEPlatform implements DynamicPlatformPlugin {
     readonly meterName: string;
     readonly showExportMeter: boolean;
     readonly exportMeterName: string;
+    readonly matterEnabled: boolean;
     private readonly client;
     private readonly pollIntervalMs;
     private gridMeterAccessory?;
     private exportMeterAccessory?;
+    private gridMatterBridge?;
     private pollTimer?;
     private pollInFlight;
     private backedOff;

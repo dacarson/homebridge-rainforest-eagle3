@@ -15,6 +15,7 @@ A [Homebridge](https://homebridge.io) plugin for the [Rainforest Automation EAGL
 - Real-time grid demand in Watts (visible in the Eve app and HomeKit detail view)
 - Cumulative energy imported (kWh) as a lifetime total
 - Optional **export meter** accessory for homes with solar net metering — shows real-time export watts and lifetime energy exported to the grid
+- Optional: live watts and energy in the Apple Home **Energy** view via Matter (see [Apple Home Energy & Matter](#apple-home-energy--matter))
 - Up to 7 days of native consumption/export history in the Eve app via [fakegato-history](https://github.com/simont77/fakegato-history)
 - Polls the EAGLE-3 **local** HTTP API — no cloud account or internet required at runtime
 - Stateless Basic Auth — no session management, no re-login lifecycle
@@ -47,7 +48,7 @@ The accessory renders as a **smart plug** in Apple Home:
 
 ## Requirements
 
-- [Homebridge](https://homebridge.io) v2.0 or later
+- [Homebridge](https://homebridge.io) v2.0 or later (v2.3.0+ if you want the optional Apple Home Energy view via Matter)
 - Node.js 18 or later
 - Rainforest EAGLE-3 on the same local network as your Homebridge host
 - The EAGLE-3's **Cloud ID** and **Install Code** (printed on the label on the underside of the device)
@@ -114,6 +115,7 @@ With export meter enabled (for solar / net metering):
 | `meterName` | string | no | `"Grid Meter"` | Display name for the import meter accessory. Defaults to `"Grid Meter - Import"` when `showExportMeter` is `true`. |
 | `showExportMeter` | boolean | no | `false` | Register a second accessory showing power exported to the grid. |
 | `exportMeterName` | string | no | `"Grid Meter - Export"` | Display name for the export meter accessory. |
+| `matter` | boolean | no | `false` | Also publish the grid meter over Matter with live electrical measurements, so it shows watts on its tile in the Apple Home Energy view (see [Apple Home Energy & Matter](#apple-home-energy--matter)) |
 
 ### Finding Your Credentials
 
@@ -149,6 +151,41 @@ The device is also reachable at `eagle-<cloudId>.local` via mDNS if you prefer n
 The two accessories are mutually exclusive — at any given moment only one shows a non-zero wattage. Both render as smart plugs in Apple Home; the Eve app shows up to 7 days of history for each.
 
 **Note on `CurrentSummationReceived`:** Many meters and firmware versions do not report this variable. When it is absent, the export kWh characteristic stays at `0`, but the real-time export watts (derived from a negative `InstantaneousDemand`) still work correctly.
+
+---
+
+## Apple Home Energy & Matter
+
+Apple Home's native **Energy** view is driven by **Matter** electrical-measurement clusters, **not** by classic HomeKit/HAP characteristics. HAP has no power or energy characteristic at all, so the Eve characteristics above (which only Eve-class apps read) can never populate it — no matter how the HomeKit accessory is shaped.
+
+With `"matter": true`, this plugin publishes a single **`ElectricalSensor`** Matter accessory named **"Grid"**, carrying live power and cumulative/periodic energy — no on/off, no controllable state, purely metering.
+
+Power is sent in milliwatts, energy in milliwatt-hours, per the Matter spec. Matter's `activePower` sign convention is positive = the accessory is *drawing* power, negative = it's *supplying* power, which lines up directly with `InstantaneousDemand` — no sign flip needed.
+
+**The grid meter is a single, bidirectional accessory on the Matter side**, even when `showExportMeter` splits Import and Export into two separate accessories in Eve/HomeKit — that split exists only because Eve's custom Energy characteristic can't represent a negative wattage. Matter's `activePower` attribute *is* signed, so power flips sign as the meter crosses between importing and exporting. Matter's cumulative/periodic *energy* attributes have no equivalent signed "net" value — Imported and Exported are always separate running totals per the Matter spec — so the Grid accessory reports both simultaneously.
+
+**Why a pure sensor and not an outlet:** this device type has no on/off cluster, so its tile in the Home app shows "Not Supported" as its headline status — Home's tile face wants a primary characteristic (on/off, a reading, etc.) to display, and a pure measurement cluster doesn't provide one. That tradeoff is accepted here: a fake on/off state isn't worth carrying for a tile headline, as long as the wattage still rolls into the Home aggregate and — via periodic energy — into the accessory's own Energy-view attribution, which it does either way.
+
+### Enabling Matter
+
+- **Homebridge 2.3.0+**
+- **Matter enabled on this plugin's child bridge** — in the Homebridge UI: plugin settings → **Bridge Settings** → enable Matter, then pair the Matter bridge in the Home app
+
+```json
+{
+  "platforms": [
+    {
+      "platform": "EAGLE",
+      "name": "EAGLE",
+      "cloudId": "004792",
+      "installCode": "bfb0fc05f51a3932",
+      "matter": true
+    }
+  ]
+}
+```
+
+If the Matter API isn't available (older Homebridge, or Matter not enabled), the plugin detects that, logs a single informational line, and continues to work exactly as before over HomeKit/Eve.
 
 ---
 

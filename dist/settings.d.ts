@@ -9,5 +9,6 @@ export interface EAGLEConfig extends PlatformConfig {
     meterName?: string;
     showExportMeter?: boolean;
     exportMeterName?: string;
+    matter?: boolean;
 }
 //# sourceMappingURL=settings.d.ts.map

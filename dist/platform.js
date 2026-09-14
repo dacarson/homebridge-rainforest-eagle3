@@ -6,6 +6,7 @@ const eagleClient_1 = require("./eagleClient");
 const gridMeterAccessory_1 = require("./gridMeterAccessory");
 const exportMeterAccessory_1 = require("./exportMeterAccessory");
 const eveCharacteristics_1 = require("./eveCharacteristics");
+const matterEnergy_1 = require("./matterEnergy");
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30000;
 const NO_METER_RETRY_MS = 60000;
@@ -29,6 +30,7 @@ class EAGLEPlatform {
             this.showExportMeter = false;
             this.meterName = 'Grid Meter';
             this.exportMeterName = 'Grid Meter - Export';
+            this.matterEnabled = false;
             return;
         }
         const host = eagleConfig.host || `eagle-${eagleConfig.cloudId}.local`;
@@ -44,6 +46,7 @@ class EAGLEPlatform {
         this.showExportMeter = eagleConfig.showExportMeter ?? false;
         this.exportMeterName = eagleConfig.exportMeterName ?? 'Grid Meter - Export';
         this.meterName = eagleConfig.meterName ?? (this.showExportMeter ? 'Grid Meter - Import' : 'Grid Meter');
+        this.matterEnabled = eagleConfig.matter === true;
         this.client = new eagleClient_1.EagleClient(host, eagleConfig.cloudId, eagleConfig.installCode, log);
         this.log.info('Finished initializing platform:', config.name ?? settings_1.PLATFORM_NAME);
         this.api.on('didFinishLaunching', () => {
@@ -117,6 +120,24 @@ class EAGLEPlatform {
             this.log.info('Removing stale export meter accessory');
             this.api.unregisterPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [existingExport]);
         }
+        // --- Matter (optional) ---
+        // Independent of showExportMeter: the grid meter is bidirectional on the
+        // Matter side regardless of whether Import/Export are split into two
+        // HomeKit/Eve accessories.
+        if (this.matterEnabled) {
+            const bridge = new matterEnergy_1.MatterEnergyBridge(this.api, this.log, 'bidirectional');
+            if (bridge.isSupported()) {
+                this.gridMatterBridge = bridge;
+                bridge.register(`${meterAddress}-grid-net`, 'Grid', meterAddress.replace(/^0x/i, ''), {
+                    powerW: 0,
+                    importedEnergyKWh: 0,
+                    exportedEnergyKWh: 0,
+                }).catch(() => { });
+            }
+            else {
+                this.log.info('[matter] Config option "matter" is enabled, but the Matter API is unavailable. It needs a Homebridge build with the ElectricalSensor device type, with Matter enabled on this plugin\'s child bridge. Continuing with HomeKit/Eve only.');
+            }
+        }
     }
     startPolling(meterAddress) {
         this.pollTimer = setInterval(async () => {
@@ -133,6 +154,11 @@ class EAGLEPlatform {
                 const reading = await this.client.queryMeter(meterAddress);
                 this.gridMeterAccessory?.updateValues(reading);
                 this.exportMeterAccessory?.updateValues(reading);
+                this.gridMatterBridge?.update({
+                    powerW: reading.demand_kw * 1000,
+                    importedEnergyKWh: reading.summation_delivered_kwh,
+                    exportedEnergyKWh: reading.summation_received_kwh ?? 0,
+                }).catch(() => { });
             }
             catch (err) {
                 if (err instanceof eagleClient_1.HttpError) {

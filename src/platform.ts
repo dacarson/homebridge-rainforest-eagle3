@@ -13,6 +13,7 @@ import { EagleClient, HttpError } from './eagleClient';
 import { GridMeterAccessory } from './gridMeterAccessory';
 import { ExportMeterAccessory } from './exportMeterAccessory';
 import { createEveCharacteristics, EveChars } from './eveCharacteristics';
+import { MatterEnergyBridge } from './matterEnergy';
 
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30_000;
@@ -28,12 +29,19 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   public readonly meterName: string;
   public readonly showExportMeter: boolean;
   public readonly exportMeterName: string;
+  public readonly matterEnabled: boolean;
 
   private readonly client: EagleClient;
   private readonly pollIntervalMs: number;
 
   private gridMeterAccessory?: GridMeterAccessory;
   private exportMeterAccessory?: ExportMeterAccessory;
+  // Optional: publishes the grid meter over Matter as a single bidirectional
+  // ElectricalSensor (live power + cumulative/periodic energy on one
+  // cluster) — see matterEnergy.ts. The Import/Export split stays HomeKit/Eve
+  // only, since that's purely about Eve's inability to represent a negative
+  // watt value, not a Matter limitation.
+  private gridMatterBridge?: MatterEnergyBridge;
   private pollTimer?: ReturnType<typeof setInterval>;
   private pollInFlight = false;
   private backedOff = false;
@@ -57,6 +65,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       this.showExportMeter = false;
       this.meterName = 'Grid Meter';
       this.exportMeterName = 'Grid Meter - Export';
+      this.matterEnabled = false;
       return;
     }
 
@@ -76,6 +85,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     this.showExportMeter = eagleConfig.showExportMeter ?? false;
     this.exportMeterName = eagleConfig.exportMeterName ?? 'Grid Meter - Export';
     this.meterName = eagleConfig.meterName ?? (this.showExportMeter ? 'Grid Meter - Import' : 'Grid Meter');
+    this.matterEnabled = eagleConfig.matter === true;
 
     this.client = new EagleClient(
       host,
@@ -170,6 +180,24 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       this.log.info('Removing stale export meter accessory');
       this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingExport]);
     }
+
+    // --- Matter (optional) ---
+    // Independent of showExportMeter: the grid meter is bidirectional on the
+    // Matter side regardless of whether Import/Export are split into two
+    // HomeKit/Eve accessories.
+    if (this.matterEnabled) {
+      const bridge = new MatterEnergyBridge(this.api, this.log, 'bidirectional');
+      if (bridge.isSupported()) {
+        this.gridMatterBridge = bridge;
+        bridge.register(`${meterAddress}-grid-net`, 'Grid', meterAddress.replace(/^0x/i, ''), {
+          powerW: 0,
+          importedEnergyKWh: 0,
+          exportedEnergyKWh: 0,
+        }).catch(() => {});
+      } else {
+        this.log.info('[matter] Config option "matter" is enabled, but the Matter API is unavailable. It needs a Homebridge build with the ElectricalSensor device type, with Matter enabled on this plugin\'s child bridge. Continuing with HomeKit/Eve only.');
+      }
+    }
   }
 
   private startPolling(meterAddress: string): void {
@@ -188,6 +216,11 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
         const reading = await this.client.queryMeter(meterAddress);
         this.gridMeterAccessory?.updateValues(reading);
         this.exportMeterAccessory?.updateValues(reading);
+        this.gridMatterBridge?.update({
+          powerW: reading.demand_kw * 1000,
+          importedEnergyKWh: reading.summation_delivered_kwh,
+          exportedEnergyKWh: reading.summation_received_kwh ?? 0,
+        }).catch(() => {});
       } catch (err) {
         if (err instanceof HttpError) {
           if (err.statusCode === 401) {

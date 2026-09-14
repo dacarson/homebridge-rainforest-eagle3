@@ -11,4 +11,5 @@ export interface EAGLEConfig extends PlatformConfig {
   meterName?: string;
   showExportMeter?: boolean;
   exportMeterName?: string;
+  matter?: boolean;
 }
