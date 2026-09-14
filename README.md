@@ -48,7 +48,7 @@ The accessory renders as a **smart plug** in Apple Home:
 
 ## Requirements
 
-- [Homebridge](https://homebridge.io) v2.0 or later (v2.3.0+ if you want the optional Apple Home Energy view via Matter)
+- [Homebridge](https://homebridge.io) v2.0 or later (v2.4.0+ and iOS 27+ if you want the optional Apple Home Energy view via Matter)
 - Node.js 18 or later
 - Rainforest EAGLE-3 on the same local network as your Homebridge host
 - The EAGLE-3's **Cloud ID** and **Install Code** (printed on the label on the underside of the device)
@@ -168,8 +168,9 @@ Power is sent in milliwatts, energy in milliwatt-hours, per the Matter spec. Mat
 
 ### Enabling Matter
 
-- **Homebridge 2.3.0+**
+- **Homebridge 2.4.0+**
 - **Matter enabled on this plugin's child bridge** — in the Homebridge UI: plugin settings → **Bridge Settings** → enable Matter, then pair the Matter bridge in the Home app
+- **iOS/iPadOS 27+** on the device you use to view the Apple Home **Energy** view — earlier versions don't show it
 
 ```json
 {

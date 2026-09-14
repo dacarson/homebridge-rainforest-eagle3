@@ -57,7 +57,7 @@
         "title": "Show in the Apple Home Energy view (via Matter)",
         "type": "boolean",
         "default": false,
-        "description": "Also publish the grid meter over Matter as a single bidirectional electrical sensor with live power and cumulative/periodic energy, feeding your Apple Home Energy view. Requires Homebridge 2.3.0+ with Matter enabled on this plugin's child bridge; skipped safely otherwise."
+        "description": "Also publish the grid meter over Matter as a single bidirectional electrical sensor with live power and cumulative/periodic energy, feeding your Apple Home Energy view (requires iOS/iPadOS 27+ to view). Requires Homebridge 2.4.0+ with Matter enabled on this plugin's child bridge; skipped safely otherwise."
       }
     },
     "required": ["cloudId", "installCode"]

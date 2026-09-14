@@ -3,7 +3,7 @@
  *
  * Publishes the EAGLE grid meter to Matter controllers as a single
  * bidirectional ElectricalSensor reporting live power and cumulative /
- * periodic energy, so it feeds the Apple Home Energy view (iOS 26+).
+ * periodic energy, so it feeds the Apple Home Energy view (iOS 27+).
  *
  * Background
  * ----------
@@ -87,9 +87,10 @@
  *
  * Requirements
  * ------------
- * - Homebridge 2.3.0+
+ * - Homebridge 2.4.0+
  * - Matter enabled on this plugin's child bridge (Homebridge UI ->
  *   plugin settings -> Bridge Settings -> enable Matter)
+ * - iOS/iPadOS 27+ on the device used to view the Apple Home Energy view
  *
  * Everything here is feature-detected and guarded: on a Homebridge build
  * without the Matter API, or with Matter disabled, isSupported() returns
