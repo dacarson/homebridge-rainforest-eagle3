@@ -155,6 +155,12 @@ The two accessories are mutually exclusive — at any given moment only one show
 ---
 
 ## Apple Home Energy & Matter
+<table>
+  <td>
+<img width="600" alt="MatterEnergy" src="https://github.com/user-attachments/assets/fcff5f12-54cb-4431-a944-8ac04c6e044f" />
+        <br><sub>Apple Energy view with other Energy accessories</sub>
+    </td>
+</table>
 
 Apple Home's native **Energy** view is driven by **Matter** electrical-measurement clusters, **not** by classic HomeKit/HAP characteristics. HAP has no power or energy characteristic at all, so the Eve characteristics above (which only Eve-class apps read) can never populate it — no matter how the HomeKit accessory is shaped.
 
