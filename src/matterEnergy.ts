@@ -74,16 +74,31 @@
  * features compose once at registration, so PeriodicEnergy must already be
  * present in the *initial* cluster state passed to registerPlatformAccessories()
  * — declaring it for the first time in a later updateAccessoryState() call
- * would not retroactively add the feature. buildClusters() therefore seeds a
- * zero-energy periodic fragment (no timestamps yet) on its very first call,
- * which is always the one register() makes, before any real reading exists
- * to diff against; every call after that computes a real delta against the
- * last *periodic* baseline (not the last poll), throttled to at most once
- * per MIN_PERIODIC_INTERVAL_S so a short poll interval (default 15s, minimum
- * 5s) doesn't turn into excessive Matter event/state churn compared to a
- * device that naturally reports once a minute. Imported and exported
- * baselines are tracked independently, since either can advance while the
- * other sits idle.
+ * would not retroactively add the feature. register() therefore seeds a
+ * zero-energy periodic fragment (no timestamps yet).
+ *
+ * Event rate
+ * ----------
+ * Homebridge routes every energy field passed to updateAccessoryState() through
+ * matter.js setMeasurement(), which records a CumulativeEnergyMeasured or
+ * PeriodicEnergyMeasured event for each one. Sending both on every poll
+ * (default 15s) produced events that almost always repeated the previous
+ * total or reported 0 energy, so update() includes each field only when it
+ * carries news:
+ *
+ * - Cumulative: when the total (in mWh) has changed since the last one sent,
+ *   or CUMULATIVE_HEARTBEAT_S has passed, so controllers still get a periodic
+ *   heartbeat while the meter is idle.
+ * - Periodic: energy is accumulated across polls (per-poll deltas, so a meter
+ *   counter that steps backwards doesn't produce a negative period) and
+ *   emitted once per PERIODIC_INTERVAL_S, with start/end timestamps covering
+ *   the whole period. If the previous period was idle (zero energy) and energy
+ *   starts flowing, the period is emitted immediately and a new one starts, so
+ *   a new session starts reporting promptly instead of up to 15 minutes later.
+ *
+ * The periodic baseline is taken from the first real poll, not from the
+ * placeholder readings register() is called with. The first update() after
+ * registration always sends both fields, as before.
  *
  * Requirements
  * ------------
@@ -175,29 +190,47 @@ interface MatterAPILike {
 
 type APIWithMatter = API & { matter?: MatterAPILike };
 
+const ENERGY_KINDS: Record<EnergyDirection, EnergyKind[]> = {
+  imported: ['imported'],
+  exported: ['exported'],
+  bidirectional: ['imported', 'exported'],
+};
+
 export class MatterEnergyBridge {
-  private static readonly MIN_PERIODIC_INTERVAL_S = 60;
+  /** Re-send an unchanged cumulative total at least this often. */
+  static readonly CUMULATIVE_HEARTBEAT_S = 15 * 60;
+  /** Length of one PeriodicEnergyMeasured period. */
+  static readonly PERIODIC_INTERVAL_S = 15 * 60;
 
   private readonly api: APIWithMatter;
+  private readonly kinds: EnergyKind[];
   private uuid: string | null = null;
   private registered = false;
   private warnedUpdate = false;
+  private sentFirstUpdate = false;
 
-  // Periodic-energy bookkeeping — see the "Cumulative vs. periodic energy"
-  // note at the top of this file. Tracked per energy kind so the
-  // bidirectional meter can advance its imported and exported deltas
-  // independently.
-  private periodicState: Record<EnergyKind, { baselineKWh: number | null; timestampS: number | null; last: EnergyStruct }> = {
-    imported: { baselineKWh: null, timestampS: null, last: { energy: 0 } },
-    exported: { baselineKWh: null, timestampS: null, last: { energy: 0 } },
+  // Cumulative energy last sent (mWh) and when.
+  private lastCumulative: { mWh: Record<EnergyKind, number>; timeS: number } | null = null;
+
+  // Periodic-energy bookkeeping — see "Event rate" at the top of this file.
+  private lastReadingKWh: Record<EnergyKind, number> | null = null;
+  private periodStartS = 0;
+  private periodKWh: Record<EnergyKind, number> = { imported: 0, exported: 0 };
+  private lastPeriodic: Record<EnergyKind, EnergyStruct> = {
+    imported: { energy: 0 },
+    exported: { energy: 0 },
   };
+  // True while the last emitted period carried no energy (and at startup).
+  private idle = true;
 
   constructor(
     api: API,
     private readonly log: Logger,
     private readonly direction: EnergyDirection,
+    private readonly nowMs: () => number = Date.now,
   ) {
     this.api = api as APIWithMatter;
+    this.kinds = ENERGY_KINDS[direction];
   }
 
   /**
@@ -221,55 +254,92 @@ export class MatterEnergyBridge {
     return true;
   }
 
-  private buildClusters(r: EnergyReadings): MatterAccessoryClusters {
-    const energyField: MatterAccessoryClusters['electricalEnergyMeasurement'] = {};
+  private nowS(): number {
+    return Math.floor(this.nowMs() / 1000);
+  }
 
-    if (this.direction === 'imported' || this.direction === 'bidirectional') {
-      energyField.cumulativeEnergyImported = { energy: kWhToMilliWh(r.importedEnergyKWh ?? 0) };
-      energyField.periodicEnergyImported = this.computePeriodic('imported', r.importedEnergyKWh ?? 0);
-    }
-    if (this.direction === 'exported' || this.direction === 'bidirectional') {
-      energyField.cumulativeEnergyExported = { energy: kWhToMilliWh(r.exportedEnergyKWh ?? 0) };
-      energyField.periodicEnergyExported = this.computePeriodic('exported', r.exportedEnergyKWh ?? 0);
-    }
+  private static readingsByKind(r: EnergyReadings): Record<EnergyKind, number> {
+    return { imported: r.importedEnergyKWh ?? 0, exported: r.exportedEnergyKWh ?? 0 };
+  }
 
+  /** Initial cluster state for register(): every energy field, periodic seeded at zero. */
+  private buildInitialClusters(r: EnergyReadings): MatterAccessoryClusters {
+    const kWh = MatterEnergyBridge.readingsByKind(r);
+    const mWh = { imported: kWhToMilliWh(kWh.imported), exported: kWhToMilliWh(kWh.exported) };
+    this.lastCumulative = { mWh, timeS: this.nowS() };
     return {
       electricalPowerMeasurement: { activePower: wToMilliW(r.powerW) },
-      electricalEnergyMeasurement: energyField,
+      electricalEnergyMeasurement: this.energyFields(mWh, true),
     };
   }
 
+  private energyFields(
+    cumulativeMWh: Record<EnergyKind, number> | null,
+    includePeriodic: boolean,
+  ): MatterAccessoryClusters['electricalEnergyMeasurement'] {
+    const out: MatterAccessoryClusters['electricalEnergyMeasurement'] = {};
+    for (const kind of this.kinds) {
+      const suffix = kind === 'imported' ? 'Imported' : 'Exported';
+      if (cumulativeMWh) {
+        out[`cumulativeEnergy${suffix}`] = { energy: cumulativeMWh[kind] };
+      }
+      if (includePeriodic) {
+        out[`periodicEnergy${suffix}`] = this.lastPeriodic[kind];
+      }
+    }
+    return out;
+  }
+
   /**
-   * Compute (or, between periodic reports, just return the last computed)
-   * periodic-energy fragment for one energy kind. The very first call —
-   * always from register(), before any real reading exists — seeds a
-   * zero-energy fragment with no timestamps, purely so the PeriodicEnergy
-   * feature composes at registration. Every call after that reports a real
-   * delta against the last periodic baseline once MIN_PERIODIC_INTERVAL_S
-   * has elapsed.
+   * Decide which energy fields this poll should send, updating the cumulative
+   * and periodic bookkeeping. Returns an empty object when nothing is due.
    */
-  private computePeriodic(kind: EnergyKind, energyKWh: number): EnergyStruct {
-    const state = this.periodicState[kind];
-    const nowS = Math.floor(Date.now() / 1000);
+  private buildEnergyUpdate(r: EnergyReadings): MatterAccessoryClusters['electricalEnergyMeasurement'] {
+    const nowS = this.nowS();
+    const kWh = MatterEnergyBridge.readingsByKind(r);
+    const first = !this.sentFirstUpdate;
+    this.sentFirstUpdate = true;
 
-    if (state.baselineKWh === null || state.timestampS === null) {
-      state.baselineKWh = energyKWh;
-      state.timestampS = nowS;
-      return state.last;
+    // Periodic: accumulate this poll's delta, emit at the end of a period or
+    // as soon as energy starts flowing after an idle period.
+    let emitPeriodic = false;
+    if (this.lastReadingKWh === null) {
+      this.periodStartS = nowS;
+    } else {
+      for (const kind of this.kinds) {
+        this.periodKWh[kind] += Math.max(0, kWh[kind] - this.lastReadingKWh[kind]);
+      }
+      const hasEnergy = this.kinds.some((k) => kWhToMilliWh(this.periodKWh[k]) > 0);
+      const periodOver = nowS - this.periodStartS >= MatterEnergyBridge.PERIODIC_INTERVAL_S;
+      if (periodOver || (this.idle && hasEnergy)) {
+        emitPeriodic = true;
+        for (const kind of this.kinds) {
+          this.lastPeriodic[kind] = {
+            energy: kWhToMilliWh(this.periodKWh[kind]),
+            startTimestamp: this.periodStartS,
+            endTimestamp: nowS,
+          };
+          this.periodKWh[kind] = 0;
+        }
+        this.idle = !hasEnergy;
+        this.periodStartS = nowS;
+      }
+    }
+    this.lastReadingKWh = kWh;
+
+    // Cumulative: send on change or heartbeat.
+    const mWh = { imported: kWhToMilliWh(kWh.imported), exported: kWhToMilliWh(kWh.exported) };
+    const last = this.lastCumulative;
+    const sendCumulative =
+      first ||
+      last === null ||
+      this.kinds.some((k) => mWh[k] !== last.mWh[k]) ||
+      nowS - last.timeS >= MatterEnergyBridge.CUMULATIVE_HEARTBEAT_S;
+    if (sendCumulative) {
+      this.lastCumulative = { mWh, timeS: nowS };
     }
 
-    if (nowS - state.timestampS >= MatterEnergyBridge.MIN_PERIODIC_INTERVAL_S) {
-      const deltaKWh = Math.max(0, energyKWh - state.baselineKWh);
-      state.last = {
-        energy: kWhToMilliWh(deltaKWh),
-        startTimestamp: state.timestampS,
-        endTimestamp: nowS,
-      };
-      state.baselineKWh = energyKWh;
-      state.timestampS = nowS;
-    }
-
-    return state.last;
+    return this.energyFields(sendCumulative ? mWh : null, first || emitPeriodic);
   }
 
   /**
@@ -293,7 +363,7 @@ export class MatterEnergyBridge {
       serialNumber,
       manufacturer: 'Rainforest Automation',
       model: 'EAGLE-3',
-      clusters: this.buildClusters(readings),
+      clusters: this.buildInitialClusters(readings),
     };
 
     try {
@@ -317,13 +387,20 @@ export class MatterEnergyBridge {
     const matter = this.api.matter;
     if (!matter) return;
 
-    const clusters = this.buildClusters(readings);
+    const energy = this.buildEnergyUpdate(readings);
 
     try {
-      await Promise.all([
-        matter.updateAccessoryState(this.uuid, 'electricalPowerMeasurement', clusters.electricalPowerMeasurement),
-        matter.updateAccessoryState(this.uuid, 'electricalEnergyMeasurement', clusters.electricalEnergyMeasurement),
-      ]);
+      const updates = [
+        matter.updateAccessoryState(this.uuid, 'electricalPowerMeasurement', {
+          activePower: wToMilliW(readings.powerW),
+        }),
+      ];
+      // Every energy field sent records a Matter event, so skip the call
+      // entirely when nothing is due.
+      if (Object.keys(energy).length > 0) {
+        updates.push(matter.updateAccessoryState(this.uuid, 'electricalEnergyMeasurement', energy));
+      }
+      await Promise.all(updates);
     } catch (err) {
       // Log the first failure at warn, the rest at debug, so a persistently
       // unhappy Matter server can't flood the log on every poll.

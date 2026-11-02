@@ -188,6 +188,8 @@ Power is sent in milliwatts, energy in milliwatt-hours, per the Matter spec. Mat
 
 **The grid meter is a single, bidirectional accessory on the Matter side**, even when `showExportMeter` splits Import and Export into two separate accessories in Eve/HomeKit — that split exists only because Eve's custom Energy characteristic can't represent a negative wattage. Matter's `activePower` attribute *is* signed, so power flips sign as the meter crosses between importing and exporting. Matter's cumulative/periodic *energy* attributes have no equivalent signed "net" value — Imported and Exported are always separate running totals per the Matter spec — so the Grid accessory reports both simultaneously.
 
+Live power is updated on every poll. Energy is reported only when there is something new: the cumulative totals when they change (or every 15 minutes as a heartbeat), and periodic energy once per 15-minute period. When energy starts flowing again after an idle period, the periodic total is reported right away.
+
 **Why a pure sensor and not an outlet:** this device type has no on/off cluster, so its tile in the Home app shows "Not Supported" as its headline status — Home's tile face wants a primary characteristic (on/off, a reading, etc.) to display, and a pure measurement cluster doesn't provide one. That tradeoff is accepted here: a fake on/off state isn't worth carrying for a tile headline, as long as the wattage still rolls into the Home aggregate and — via periodic energy — into the accessory's own Energy-view attribution, which it does either way.
 
 ### Enabling Matter

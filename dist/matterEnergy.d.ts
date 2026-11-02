@@ -74,16 +74,31 @@
  * features compose once at registration, so PeriodicEnergy must already be
  * present in the *initial* cluster state passed to registerPlatformAccessories()
  * — declaring it for the first time in a later updateAccessoryState() call
- * would not retroactively add the feature. buildClusters() therefore seeds a
- * zero-energy periodic fragment (no timestamps yet) on its very first call,
- * which is always the one register() makes, before any real reading exists
- * to diff against; every call after that computes a real delta against the
- * last *periodic* baseline (not the last poll), throttled to at most once
- * per MIN_PERIODIC_INTERVAL_S so a short poll interval (default 15s, minimum
- * 5s) doesn't turn into excessive Matter event/state churn compared to a
- * device that naturally reports once a minute. Imported and exported
- * baselines are tracked independently, since either can advance while the
- * other sits idle.
+ * would not retroactively add the feature. register() therefore seeds a
+ * zero-energy periodic fragment (no timestamps yet).
+ *
+ * Event rate
+ * ----------
+ * Homebridge routes every energy field passed to updateAccessoryState() through
+ * matter.js setMeasurement(), which records a CumulativeEnergyMeasured or
+ * PeriodicEnergyMeasured event for each one. Sending both on every poll
+ * (default 15s) produced events that almost always repeated the previous
+ * total or reported 0 energy, so update() includes each field only when it
+ * carries news:
+ *
+ * - Cumulative: when the total (in mWh) has changed since the last one sent,
+ *   or CUMULATIVE_HEARTBEAT_S has passed, so controllers still get a periodic
+ *   heartbeat while the meter is idle.
+ * - Periodic: energy is accumulated across polls (per-poll deltas, so a meter
+ *   counter that steps backwards doesn't produce a negative period) and
+ *   emitted once per PERIODIC_INTERVAL_S, with start/end timestamps covering
+ *   the whole period. If the previous period was idle (zero energy) and energy
+ *   starts flowing, the period is emitted immediately and a new one starts, so
+ *   a new session starts reporting promptly instead of up to 15 minutes later.
+ *
+ * The periodic baseline is taken from the first real poll, not from the
+ * placeholder readings register() is called with. The first update() after
+ * registration always sends both fields, as before.
  *
  * Requirements
  * ------------
@@ -109,29 +124,39 @@ export interface EnergyReadings {
 export declare class MatterEnergyBridge {
     private readonly log;
     private readonly direction;
-    private static readonly MIN_PERIODIC_INTERVAL_S;
+    private readonly nowMs;
+    /** Re-send an unchanged cumulative total at least this often. */
+    static readonly CUMULATIVE_HEARTBEAT_S: number;
+    /** Length of one PeriodicEnergyMeasured period. */
+    static readonly PERIODIC_INTERVAL_S: number;
     private readonly api;
+    private readonly kinds;
     private uuid;
     private registered;
     private warnedUpdate;
-    private periodicState;
-    constructor(api: API, log: Logger, direction: EnergyDirection);
+    private sentFirstUpdate;
+    private lastCumulative;
+    private lastReadingKWh;
+    private periodStartS;
+    private periodKWh;
+    private lastPeriodic;
+    private idle;
+    constructor(api: API, log: Logger, direction: EnergyDirection, nowMs?: () => number);
     /**
      * Whether this Homebridge build exposes everything needed to publish this
      * meter. Logs at debug level so unsupported builds stay quiet.
      */
     isSupported(): boolean;
-    private buildClusters;
+    private nowS;
+    private static readingsByKind;
+    /** Initial cluster state for register(): every energy field, periodic seeded at zero. */
+    private buildInitialClusters;
+    private energyFields;
     /**
-     * Compute (or, between periodic reports, just return the last computed)
-     * periodic-energy fragment for one energy kind. The very first call —
-     * always from register(), before any real reading exists — seeds a
-     * zero-energy fragment with no timestamps, purely so the PeriodicEnergy
-     * feature composes at registration. Every call after that reports a real
-     * delta against the last periodic baseline once MIN_PERIODIC_INTERVAL_S
-     * has elapsed.
+     * Decide which energy fields this poll should send, updating the cumulative
+     * and periodic bookkeeping. Returns an empty object when nothing is due.
      */
-    private computePeriodic;
+    private buildEnergyUpdate;
     /**
      * Register this meter as a Matter electrical sensor.
      *
