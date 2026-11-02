@@ -1,7 +1,7 @@
 {
   "name": "homebridge-rainforest-eagle3",
   "displayName": "Eagle 3",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Homebridge plugin for Rainforest EAGLE-3 smart meter — Eve Energy accessory with fakegato history.",
   "author": {
     "name": "David Carson",
@@ -29,7 +29,8 @@
     "build": "rimraf ./dist && tsc",
     "watch": "npm run build && nodemon",
     "lint": "eslint src/**.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "test": "rimraf ./build-test && tsc -p tsconfig.test.json && node --test build-test/*.spec.js"
   },
   "keywords": [
     "homebridge-plugin",

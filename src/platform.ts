@@ -14,11 +14,13 @@ import { GridMeterAccessory } from './gridMeterAccessory';
 import { ExportMeterAccessory } from './exportMeterAccessory';
 import { createEveCharacteristics, EveChars } from './eveCharacteristics';
 import { MatterEnergyBridge } from './matterEnergy';
+import { UpdateThrottle, resolveThrottleOptions } from './updateThrottle';
 
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30_000;
 const NO_METER_RETRY_MS = 60_000;
 const AUTH_BACKOFF_MS = 60_000;
+const THROTTLE_STATS_INTERVAL_MS = 60 * 60 * 1000;
 
 export class EAGLEPlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
@@ -30,6 +32,8 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   public readonly showExportMeter: boolean;
   public readonly exportMeterName: string;
   public readonly matterEnabled: boolean;
+  // Shared by every Eve Watts update; keyed per accessory+characteristic.
+  public readonly wattsThrottle: UpdateThrottle;
 
   private readonly client: EagleClient;
   private readonly pollIntervalMs: number;
@@ -43,6 +47,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   // watt value, not a Matter limitation.
   private gridMatterBridge?: MatterEnergyBridge;
   private pollTimer?: ReturnType<typeof setInterval>;
+  private throttleStatsTimer?: ReturnType<typeof setInterval>;
   private pollInFlight = false;
   private backedOff = false;
 
@@ -56,6 +61,10 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     this.eveChars = createEveCharacteristics(api);
 
     const eagleConfig = config as EAGLEConfig;
+    this.wattsThrottle = new UpdateThrottle(
+      resolveThrottleOptions(eagleConfig),
+      (message) => this.log.debug(message),
+    );
 
     if (!eagleConfig.cloudId || !eagleConfig.installCode) {
       this.log.error('Missing required config: cloudId and installCode are required.');
@@ -104,6 +113,9 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     this.api.on('shutdown', () => {
       if (this.pollTimer) {
         clearInterval(this.pollTimer);
+      }
+      if (this.throttleStatsTimer) {
+        clearInterval(this.throttleStatsTimer);
       }
     });
   }
@@ -201,6 +213,18 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(meterAddress: string): void {
+    if (this.wattsThrottle.options.enabled) {
+      const { minChangeWatts, minChangePercent, maxIntervalSeconds } = this.wattsThrottle.options;
+      this.log.info(
+        `Eve Watts throttling enabled: min change max(${minChangeWatts} W, ${minChangePercent}%), ` +
+          `heartbeat ${maxIntervalSeconds}s`,
+      );
+      this.throttleStatsTimer = setInterval(() => {
+        const { sent, suppressed } = this.wattsThrottle.takeStats();
+        this.log.info(`Eve Watts updates in the last hour: ${sent} sent, ${suppressed} suppressed`);
+      }, THROTTLE_STATS_INTERVAL_MS);
+    }
+
     this.pollTimer = setInterval(async () => {
       if (this.pollInFlight) {
         this.log.debug('Poll skipped — previous request still in flight');

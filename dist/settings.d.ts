@@ -10,5 +10,9 @@ export interface EAGLEConfig extends PlatformConfig {
     showExportMeter?: boolean;
     exportMeterName?: string;
     matter?: boolean;
+    throttleUpdates?: boolean;
+    minChangeWatts?: number;
+    minChangePercent?: number;
+    maxIntervalSeconds?: number;
 }
 //# sourceMappingURL=settings.d.ts.map

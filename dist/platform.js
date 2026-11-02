@@ -7,10 +7,12 @@ const gridMeterAccessory_1 = require("./gridMeterAccessory");
 const exportMeterAccessory_1 = require("./exportMeterAccessory");
 const eveCharacteristics_1 = require("./eveCharacteristics");
 const matterEnergy_1 = require("./matterEnergy");
+const updateThrottle_1 = require("./updateThrottle");
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30000;
 const NO_METER_RETRY_MS = 60000;
 const AUTH_BACKOFF_MS = 60000;
+const THROTTLE_STATS_INTERVAL_MS = 60 * 60 * 1000;
 class EAGLEPlatform {
     constructor(log, config, api) {
         this.log = log;
@@ -22,6 +24,7 @@ class EAGLEPlatform {
         this.Characteristic = api.hap.Characteristic;
         this.eveChars = (0, eveCharacteristics_1.createEveCharacteristics)(api);
         const eagleConfig = config;
+        this.wattsThrottle = new updateThrottle_1.UpdateThrottle((0, updateThrottle_1.resolveThrottleOptions)(eagleConfig), (message) => this.log.debug(message));
         if (!eagleConfig.cloudId || !eagleConfig.installCode) {
             this.log.error('Missing required config: cloudId and installCode are required.');
             // Platform will do nothing; Homebridge still loads cleanly.
@@ -56,6 +59,9 @@ class EAGLEPlatform {
         this.api.on('shutdown', () => {
             if (this.pollTimer) {
                 clearInterval(this.pollTimer);
+            }
+            if (this.throttleStatsTimer) {
+                clearInterval(this.throttleStatsTimer);
             }
         });
     }
@@ -140,6 +146,15 @@ class EAGLEPlatform {
         }
     }
     startPolling(meterAddress) {
+        if (this.wattsThrottle.options.enabled) {
+            const { minChangeWatts, minChangePercent, maxIntervalSeconds } = this.wattsThrottle.options;
+            this.log.info(`Eve Watts throttling enabled: min change max(${minChangeWatts} W, ${minChangePercent}%), ` +
+                `heartbeat ${maxIntervalSeconds}s`);
+            this.throttleStatsTimer = setInterval(() => {
+                const { sent, suppressed } = this.wattsThrottle.takeStats();
+                this.log.info(`Eve Watts updates in the last hour: ${sent} sent, ${suppressed} suppressed`);
+            }, THROTTLE_STATS_INTERVAL_MS);
+        }
         this.pollTimer = setInterval(async () => {
             if (this.pollInFlight) {
                 this.log.debug('Poll skipped — previous request still in flight');

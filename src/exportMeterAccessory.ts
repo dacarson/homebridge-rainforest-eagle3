@@ -10,6 +10,7 @@ export class ExportMeterAccessory {
 
   private lastExportW = 0;
   private lastReceivedKwh = 0;
+  private readonly throttleKey: string;
 
   constructor(
     private readonly platform: EAGLEPlatform,
@@ -20,6 +21,7 @@ export class ExportMeterAccessory {
   ) {
     const { Characteristic, api } = platform;
     const { EveWatts, EveKWh } = platform.eveChars;
+    this.throttleKey = `export:${accessory.displayName}`;
 
     const infoService =
       accessory.getService(platform.Service.AccessoryInformation) ??
@@ -78,7 +80,9 @@ export class ExportMeterAccessory {
 
     this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastExportW > 0);
     this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
-    this.eveEnergyService.updateCharacteristic(EveWatts, this.lastExportW);
+    if (this.platform.wattsThrottle.shouldSend(`${this.throttleKey}:EveWatts`, this.lastExportW)) {
+      this.eveEnergyService.updateCharacteristic(EveWatts, this.lastExportW);
+    }
     this.eveEnergyService.updateCharacteristic(EveKWh, this.lastReceivedKwh);
 
     this.historyService.addEntry({

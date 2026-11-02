@@ -10,6 +10,7 @@ export class GridMeterAccessory {
 
   private lastDemandW = 0;
   private lastDeliveredKwh = 0;
+  private readonly throttleKey: string;
 
   constructor(
     private readonly platform: EAGLEPlatform,
@@ -20,6 +21,7 @@ export class GridMeterAccessory {
   ) {
     const { Characteristic, api } = platform;
     const { EveWatts, EveKWh } = platform.eveChars;
+    this.throttleKey = `import:${accessory.displayName}`;
 
     // Accessory information service
     const infoService =
@@ -86,7 +88,9 @@ export class GridMeterAccessory {
 
     this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastDemandW > 0);
     this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
-    this.eveEnergyService.updateCharacteristic(EveWatts, this.lastDemandW);
+    if (this.platform.wattsThrottle.shouldSend(`${this.throttleKey}:EveWatts`, this.lastDemandW)) {
+      this.eveEnergyService.updateCharacteristic(EveWatts, this.lastDemandW);
+    }
     this.eveEnergyService.updateCharacteristic(EveKWh, this.lastDeliveredKwh);
 
     this.historyService.addEntry({

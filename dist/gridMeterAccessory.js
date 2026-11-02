@@ -11,6 +11,7 @@ class GridMeterAccessory {
         this.lastDeliveredKwh = 0;
         const { Characteristic, api } = platform;
         const { EveWatts, EveKWh } = platform.eveChars;
+        this.throttleKey = `import:${accessory.displayName}`;
         // Accessory information service
         const infoService = accessory.getService(platform.Service.AccessoryInformation) ??
             accessory.addService(platform.Service.AccessoryInformation);
@@ -60,7 +61,9 @@ class GridMeterAccessory {
         this.lastDeliveredKwh = reading.summation_delivered_kwh;
         this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastDemandW > 0);
         this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
-        this.eveEnergyService.updateCharacteristic(EveWatts, this.lastDemandW);
+        if (this.platform.wattsThrottle.shouldSend(`${this.throttleKey}:EveWatts`, this.lastDemandW)) {
+            this.eveEnergyService.updateCharacteristic(EveWatts, this.lastDemandW);
+        }
         this.eveEnergyService.updateCharacteristic(EveKWh, this.lastDeliveredKwh);
         this.historyService.addEntry({
             time: Math.round(Date.now() / 1000),

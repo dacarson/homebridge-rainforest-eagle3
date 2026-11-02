@@ -15,3 +15,6 @@ npm-debug.log*
 
 # Env / secrets
 .env
+
+# Test build output
+build-test/

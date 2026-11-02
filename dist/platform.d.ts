@@ -1,5 +1,6 @@
 import { API, Characteristic, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service } from 'homebridge';
 import { EveChars } from './eveCharacteristics';
+import { UpdateThrottle } from './updateThrottle';
 export declare class EAGLEPlatform implements DynamicPlatformPlugin {
     readonly log: Logger;
     readonly api: API;
@@ -11,12 +12,14 @@ export declare class EAGLEPlatform implements DynamicPlatformPlugin {
     readonly showExportMeter: boolean;
     readonly exportMeterName: string;
     readonly matterEnabled: boolean;
+    readonly wattsThrottle: UpdateThrottle;
     private readonly client;
     private readonly pollIntervalMs;
     private gridMeterAccessory?;
     private exportMeterAccessory?;
     private gridMatterBridge?;
     private pollTimer?;
+    private throttleStatsTimer?;
     private pollInFlight;
     private backedOff;
     constructor(log: Logger, config: PlatformConfig, api: API);

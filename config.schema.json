@@ -58,6 +58,33 @@
         "type": "boolean",
         "default": false,
         "description": "Also publish the grid meter over Matter as a single bidirectional electrical sensor with live power and cumulative/periodic energy, feeding your Apple Home Energy view (requires iOS/iPadOS 27+ to view). Requires Homebridge 2.4.0+ with Matter enabled on this plugin's child bridge; skipped safely otherwise."
+      },
+      "throttleUpdates": {
+        "title": "Throttle Power Updates",
+        "type": "boolean",
+        "default": true,
+        "description": "Only send an Eve Watts update to HomeKit when the power reading changes meaningfully, rather than on every poll. Eve kWh is never throttled."
+      },
+      "minChangeWatts": {
+        "title": "Minimum Change (W)",
+        "type": "number",
+        "default": 25,
+        "minimum": 0,
+        "description": "Send an update when power has changed by at least this many watts since the last value sent (or by Minimum Change %, whichever is larger)."
+      },
+      "minChangePercent": {
+        "title": "Minimum Change (%)",
+        "type": "number",
+        "default": 2,
+        "minimum": 0,
+        "description": "Send an update when power has changed by at least this percentage of the last value sent (or by Minimum Change W, whichever is larger)."
+      },
+      "maxIntervalSeconds": {
+        "title": "Maximum Interval (seconds)",
+        "type": "number",
+        "default": 300,
+        "minimum": 0,
+        "description": "Send an update anyway once this long has passed since the last one, even if the change is small."
       }
     },
     "required": ["cloudId", "installCode"]
@@ -76,6 +103,26 @@
         "functionBody": "return model.showExportMeter === true;"
       }
     },
-    { "key": "matter" }
+    { "key": "matter" },
+    {
+      "type": "fieldset",
+      "title": "Throttling",
+      "expandable": true,
+      "items": [
+        { "key": "throttleUpdates" },
+        {
+          "key": "minChangeWatts",
+          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
+        },
+        {
+          "key": "minChangePercent",
+          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
+        },
+        {
+          "key": "maxIntervalSeconds",
+          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
+        }
+      ]
+    }
   ]
 }

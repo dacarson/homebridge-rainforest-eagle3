@@ -116,6 +116,24 @@ With export meter enabled (for solar / net metering):
 | `showExportMeter` | boolean | no | `false` | Register a second accessory showing power exported to the grid. |
 | `exportMeterName` | string | no | `"Grid Meter - Export"` | Display name for the export meter accessory. |
 | `matter` | boolean | no | `false` | Also publish the grid meter over Matter with live electrical measurements, so it shows watts on its tile in the Apple Home Energy view (see [Apple Home Energy & Matter](#apple-home-energy--matter)) |
+| `throttleUpdates` | boolean | no | `true` | Only send Eve Watts updates to HomeKit when power changes meaningfully (see [Throttling](#throttling)). Set to `false` to send every poll. |
+| `minChangeWatts` | number | no | `25` | Minimum change in watts, since the last value sent, that triggers an update. |
+| `minChangePercent` | number | no | `2` | Minimum change as a percentage of the last value sent. The larger of this and `minChangeWatts` applies. |
+| `maxIntervalSeconds` | number | no | `300` | Send an update anyway once this many seconds have passed since the last one. |
+
+### Throttling
+
+The EAGLE is polled every `pollInterval` seconds and the demand reading differs slightly on nearly every poll. Without throttling, each poll pushes a HomeKit event for both the import and export meters, about 230 events per hour in total.
+
+With `throttleUpdates` enabled (the default), an Eve Watts update is sent only when one of these is true:
+
+- The value has changed by at least `max(minChangeWatts, minChangePercent% of the last value sent)`
+- The value crosses to or from 0 (switching between importing and exporting)
+- `maxIntervalSeconds` have passed since the last update for that accessory
+
+The newest reading is always used for reads, so opening the Home or Eve app shows the current value, not the last one sent. Eve kWh, On, and the first value after startup are never throttled, and Eve history (fakegato) still logs every poll. Suppressed updates are logged at debug level, and a one-line summary of sent vs. suppressed updates is logged every hour.
+
+The settings appear in the Homebridge UI under the **Throttling** section.
 
 ### Finding Your Credentials
 
@@ -216,6 +234,12 @@ git clone https://github.com/dacarson/homebridge-rainforest-eagle3.git
 cd homebridge-rainforest-eagle3
 npm install
 npm run build
+```
+
+To run the unit tests:
+
+```bash
+npm test
 ```
 
 To develop with live rebuilds:
