@@ -7,7 +7,8 @@ export declare class ExportMeterAccessory {
     private readonly historyService;
     private lastExportW;
     private lastReceivedKwh;
-    private readonly throttleKey;
+    private readonly key;
+    private readonly powerSwitch;
     constructor(platform: EAGLEPlatform, accessory: PlatformAccessory, FakeGatoHistoryService: any, meterAddress: string);
     updateValues(reading: MeterReading): void;
 }

@@ -116,24 +116,50 @@ With export meter enabled (for solar / net metering):
 | `showExportMeter` | boolean | no | `false` | Register a second accessory showing power exported to the grid. |
 | `exportMeterName` | string | no | `"Grid Meter - Export"` | Display name for the export meter accessory. |
 | `matter` | boolean | no | `false` | Also publish the grid meter over Matter with live electrical measurements, so it shows watts on its tile in the Apple Home Energy view (see [Apple Home Energy & Matter](#apple-home-energy--matter)) |
-| `throttleUpdates` | boolean | no | `true` | Only send Eve Watts updates to HomeKit when power changes meaningfully (see [Throttling](#throttling)). Set to `false` to send every poll. |
-| `minChangeWatts` | number | no | `25` | Minimum change in watts, since the last value sent, that triggers an update. |
-| `minChangePercent` | number | no | `2` | Minimum change as a percentage of the last value sent. The larger of this and `minChangeWatts` applies. |
-| `maxIntervalSeconds` | number | no | `300` | Send an update anyway once this many seconds have passed since the last one. |
+| `evePowerUpdates` | string | no | `"throttled"` | How Eve Watts / Eve kWh are sent to HomeKit: `"throttled"`, `"pollOnly"` or `"live"` (see [HomeKit Updates](#homekit-updates)). |
+| `minChangeWatts` | number | no | `25` | Throttled mode: minimum change in watts, since the last push, that pushes Eve Watts. |
+| `minChangePercent` | number | no | `2` | Throttled mode: minimum change as a percentage of the last push. The larger of this and `minChangeWatts` applies. |
+| `minChangeKwh` | number | no | `0.1` | Throttled mode: minimum change in kWh, since the last push, that pushes Eve kWh. |
+| `maxIntervalSeconds` | number | no | `300` | Throttled mode: push anyway once this many seconds have passed since the last push. |
+| `switchHoldSeconds` | number | no | `60` | How long a new On state must hold before it is reported. `0` disables the hold. |
 
-### Throttling
+### HomeKit Updates
 
-The EAGLE is polled every `pollInterval` seconds and the demand reading differs slightly on nearly every poll. Without throttling, each poll pushes a HomeKit event for both the import and export meters, about 230 events per hour in total.
+The EAGLE is polled every `pollInterval` seconds and the readings differ slightly on nearly every poll. Pushing every value sends a HomeKit event per characteristic per poll, hundreds of events an hour, that every connected Home hub and device has to process. These settings reduce that traffic without breaking automations. They appear in the Homebridge UI under **HomeKit Updates**.
 
-With `throttleUpdates` enabled (the default), an Eve Watts update is sent only when one of these is true:
+On startup the plugin polls right away and reports the current values immediately, in every mode.
 
-- The value has changed by at least `max(minChangeWatts, minChangePercent% of the last value sent)`
-- The value crosses to or from 0 (switching between importing and exporting)
-- `maxIntervalSeconds` have passed since the last update for that accessory
+#### Eve power and energy (`evePowerUpdates`)
 
-The newest reading is always used for reads, so opening the Home or Eve app shows the current value, not the last one sent. Eve kWh, On, and the first value after startup are never throttled, and Eve history (fakegato) still logs every poll. Suppressed updates are logged at debug level, and a one-line summary of sent vs. suppressed updates is logged every hour.
+Eve Watts and Eve kWh are Eve custom characteristics. Besides the Eve app showing them, **Eve and Home+ automations can trigger on or check these values** (for example "when power rises above 3 kW"). Choose a mode with that in mind:
 
-The settings appear in the Homebridge UI under the **Throttling** section.
+| Mode | Traffic | Automations on these values |
+|---|---|---|
+| `throttled` (default) | Low | Keep working. Values are accurate to within the configured thresholds. |
+| `pollOnly` | Lowest | **Triggers on these values stop working.** Use it only if no automation uses them. |
+| `live` | High | Work, with every reading (the behavior before 1.2.0). |
+
+- **throttled** pushes a value only when one of these is true:
+  - Eve Watts has changed by at least `max(minChangeWatts, minChangePercent% of the last value pushed)`, or has crossed to or from 0
+  - Eve kWh has changed by at least `minChangeKwh`
+  - `maxIntervalSeconds` (default 5 minutes) have passed since the last push for that value
+- **pollOnly** removes notify support from these characteristics and never pushes them. The newest reading is still returned whenever an app reads the value, so the Eve app shows current figures when opened.
+- **live** pushes every reading.
+
+In every mode, reads return the newest reading, and Eve history (fakegato) still logs every poll.
+
+#### On switches
+
+The On characteristic of each meter is a standard HomeKit characteristic and is always pushed, so Home app automations keep working. To keep it from flapping on small or brief changes:
+
+- **Deadband:** it turns on when power rises above **50 W** and off when it falls below **20 W**. Readings in between keep the current state.
+- **Hold:** a new state must hold for `switchHoldSeconds` (default 60) before it is reported. A spike shorter than that never flips the switch. Set it to `0` to report changes on the next poll.
+
+**Automations triggered by these switches can fire up to `switchHoldSeconds` (plus one poll interval) later than the underlying change.**
+
+#### Logging
+
+Suppressed Eve updates and held switch changes are logged at debug level. Unless `evePowerUpdates` is `live` and `switchHoldSeconds` is `0`, a one-line summary of sent vs. suppressed updates is logged every hour.
 
 ### Finding Your Credentials
 
@@ -152,7 +178,7 @@ The device is also reachable at `eagle-<cloudId>.local` via mDNS if you prefer n
 
 | Characteristic | Source | Notes |
 |---|---|---|
-| On | `demand > 0` | True when consuming grid power |
+| On | `demand` above 50 W / below 20 W | True when importing from the grid. Changes are held for `switchHoldSeconds`; see [On switches](#on-switches). |
 | OutletInUse | Always `true` | Required by Eve Energy |
 | Eve Watts | `max(0, demand) × 1000` | Import watts. Zero when net-exporting. |
 | Eve kWh | `CurrentSummationDelivered` | Lifetime energy imported from grid |
@@ -161,7 +187,7 @@ The device is also reachable at `eagle-<cloudId>.local` via mDNS if you prefer n
 
 | Characteristic | Source | Notes |
 |---|---|---|
-| On | `demand < 0` | True when exporting to the grid |
+| On | export above 50 W / below 20 W | True when exporting to the grid. Changes are held for `switchHoldSeconds`; see [On switches](#on-switches). |
 | OutletInUse | Always `true` | Required by Eve Energy |
 | Eve Watts | `max(0, −demand) × 1000` | Export watts. Zero when not exporting. |
 | Eve kWh | `CurrentSummationReceived` | Lifetime energy exported to grid. Shows `0` if the meter does not report this variable. |

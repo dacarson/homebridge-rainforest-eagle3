@@ -11,4 +11,11 @@ export interface EveChars {
     EveKWh: EveCharClass;
 }
 export declare function createEveCharacteristics(api: API): EveChars;
+/**
+ * Adds or removes NOTIFY on an Eve characteristic. Applied to every instance,
+ * including ones restored from the accessory cache (which keep their cached
+ * props rather than the class defaults), so switching evePowerUpdates to or
+ * from pollOnly takes effect on restart.
+ */
+export declare function setEveNotify(characteristic: Characteristic, notify: boolean): void;
 //# sourceMappingURL=eveCharacteristics.d.ts.map

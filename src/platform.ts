@@ -14,7 +14,9 @@ import { GridMeterAccessory } from './gridMeterAccessory';
 import { ExportMeterAccessory } from './exportMeterAccessory';
 import { createEveCharacteristics, EveChars } from './eveCharacteristics';
 import { MatterEnergyBridge } from './matterEnergy';
-import { UpdateThrottle, resolveThrottleOptions } from './updateThrottle';
+import { EveUnit, EveUpdateThrottle, UpdatePolicyOptions, UpdateStats, resolveUpdatePolicy } from './updatePolicy';
+import { PowerSwitch } from './powerSwitch';
+import { EveCharClass } from './eveCharacteristics';
 
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30_000;
@@ -32,8 +34,10 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   public readonly showExportMeter: boolean;
   public readonly exportMeterName: string;
   public readonly matterEnabled: boolean;
-  // Shared by every Eve Watts update; keyed per accessory+characteristic.
-  public readonly wattsThrottle: UpdateThrottle;
+  // HomeKit traffic reduction — see updatePolicy.ts and powerSwitch.ts.
+  public readonly updatePolicy: UpdatePolicyOptions;
+  public readonly eveThrottle: EveUpdateThrottle;
+  private readonly switchStats = new UpdateStats();
 
   private readonly client: EagleClient;
   private readonly pollIntervalMs: number;
@@ -61,8 +65,10 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
     this.eveChars = createEveCharacteristics(api);
 
     const eagleConfig = config as EAGLEConfig;
-    this.wattsThrottle = new UpdateThrottle(
-      resolveThrottleOptions(eagleConfig),
+    this.updatePolicy = resolveUpdatePolicy(eagleConfig);
+    this.eveThrottle = new EveUpdateThrottle(
+      this.updatePolicy,
+      new UpdateStats(),
       (message) => this.log.debug(message),
     );
 
@@ -118,6 +124,23 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
         clearInterval(this.throttleStatsTimer);
       }
     });
+  }
+
+  /** Push an Eve power/energy value, subject to the evePowerUpdates mode. */
+  updateEve(service: Service, characteristic: EveCharClass, key: string, value: number, unit: EveUnit): void {
+    if (this.eveThrottle.shouldSend(key, value, unit)) {
+      service.updateCharacteristic(characteristic, value);
+    }
+  }
+
+  /** On/off state for a power-derived On characteristic, with deadband and hold. */
+  createPowerSwitch(key: string): PowerSwitch {
+    return new PowerSwitch(
+      key,
+      this.updatePolicy.switchHoldSeconds,
+      this.switchStats,
+      (message) => this.log.debug(message),
+    );
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
@@ -213,19 +236,25 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   }
 
   private startPolling(meterAddress: string): void {
-    if (this.wattsThrottle.options.enabled) {
-      const { minChangeWatts, minChangePercent, maxIntervalSeconds } = this.wattsThrottle.options;
-      this.log.info(
-        `Eve Watts throttling enabled: min change max(${minChangeWatts} W, ${minChangePercent}%), ` +
-          `heartbeat ${maxIntervalSeconds}s`,
-      );
+    const p = this.updatePolicy;
+    const eveDesc =
+      p.evePowerUpdates === 'throttled'
+        ? `throttled (max(${p.minChangeWatts} W, ${p.minChangePercent}%), ${p.minChangeKwh} kWh, every ${p.maxIntervalSeconds}s)`
+        : p.evePowerUpdates;
+    this.log.info(`Eve power updates: ${eveDesc}; On switch hold: ${p.switchHoldSeconds}s`);
+
+    if (p.evePowerUpdates !== 'live' || p.switchHoldSeconds > 0) {
       this.throttleStatsTimer = setInterval(() => {
-        const { sent, suppressed } = this.wattsThrottle.takeStats();
-        this.log.info(`Eve Watts updates in the last hour: ${sent} sent, ${suppressed} suppressed`);
+        const eve = this.eveThrottle.stats.take();
+        const sw = this.switchStats.take();
+        this.log.info(
+          `HomeKit updates in the last hour: Eve power ${eve.sent} sent, ${eve.suppressed} suppressed; ` +
+            `On switches ${sw.sent} sent, ${sw.suppressed} held`,
+        );
       }, THROTTLE_STATS_INTERVAL_MS);
     }
 
-    this.pollTimer = setInterval(async () => {
+    const poll = async (): Promise<void> => {
       if (this.pollInFlight) {
         this.log.debug('Poll skipped — previous request still in flight');
         return;
@@ -271,7 +300,12 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
       } finally {
         this.pollInFlight = false;
       }
-    }, this.pollIntervalMs);
+    };
+
+    // Poll once right away so HomeKit has the correct values on startup,
+    // rather than placeholders until the first interval elapses.
+    void poll();
+    this.pollTimer = setInterval(poll, this.pollIntervalMs);
   }
 
   private enterBackoff(durationMs: number): void {

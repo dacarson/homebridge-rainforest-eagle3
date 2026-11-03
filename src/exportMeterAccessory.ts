@@ -1,7 +1,8 @@
 import { PlatformAccessory, Service } from 'homebridge';
 import { EAGLEPlatform } from './platform';
 import { MeterReading } from './eagleClient';
-import { EVE_ENERGY_SERVICE_UUID } from './eveCharacteristics';
+import { EVE_ENERGY_SERVICE_UUID, setEveNotify } from './eveCharacteristics';
+import { PowerSwitch } from './powerSwitch';
 
 export class ExportMeterAccessory {
   private readonly eveEnergyService: Service;
@@ -10,7 +11,8 @@ export class ExportMeterAccessory {
 
   private lastExportW = 0;
   private lastReceivedKwh = 0;
-  private readonly throttleKey: string;
+  private readonly key: string;
+  private readonly powerSwitch: PowerSwitch;
 
   constructor(
     private readonly platform: EAGLEPlatform,
@@ -21,7 +23,8 @@ export class ExportMeterAccessory {
   ) {
     const { Characteristic, api } = platform;
     const { EveWatts, EveKWh } = platform.eveChars;
-    this.throttleKey = `export:${accessory.displayName}`;
+    this.key = `export:${accessory.displayName}`;
+    this.powerSwitch = platform.createPowerSwitch(this.key);
 
     const infoService =
       accessory.getService(platform.Service.AccessoryInformation) ??
@@ -43,15 +46,12 @@ export class ExportMeterAccessory {
 
     this.eveEnergyService.setCharacteristic(Characteristic.Name, platform.exportMeterName);
 
-    // On — true when the home is actively exporting to the grid
+    // On — true when exporting to the grid (deadband + hold, see powerSwitch.ts)
     this.eveEnergyService
       .getCharacteristic(Characteristic.On)
-      .onGet(() => this.lastExportW > 0)
+      .onGet(() => this.powerSwitch.state)
       .onSet(async () => {
-        this.eveEnergyService.updateCharacteristic(
-          Characteristic.On,
-          this.lastExportW > 0,
-        );
+        this.eveEnergyService.updateCharacteristic(Characteristic.On, this.powerSwitch.state);
       });
 
     this.eveEnergyService
@@ -61,10 +61,12 @@ export class ExportMeterAccessory {
     this.eveEnergyService
       .getCharacteristic(EveWatts)
       .onGet(() => this.lastExportW);
+    setEveNotify(this.eveEnergyService.getCharacteristic(EveWatts), platform.eveThrottle.notify);
 
     this.eveEnergyService
       .getCharacteristic(EveKWh)
       .onGet(() => this.lastReceivedKwh);
+    setEveNotify(this.eveEnergyService.getCharacteristic(EveKWh), platform.eveThrottle.notify);
 
     this.historyService = new FakeGatoHistoryService('energy', accessory, {
       storage: 'fs',
@@ -78,12 +80,13 @@ export class ExportMeterAccessory {
     this.lastExportW = Math.round(Math.max(0, -reading.demand_kw) * 1000 * 10) / 10;
     this.lastReceivedKwh = reading.summation_received_kwh ?? 0;
 
-    this.eveEnergyService.updateCharacteristic(Characteristic.On, this.lastExportW > 0);
-    this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
-    if (this.platform.wattsThrottle.shouldSend(`${this.throttleKey}:EveWatts`, this.lastExportW)) {
-      this.eveEnergyService.updateCharacteristic(EveWatts, this.lastExportW);
+    const on = this.powerSwitch.update(this.lastExportW);
+    if (on !== null) {
+      this.eveEnergyService.updateCharacteristic(Characteristic.On, on);
     }
-    this.eveEnergyService.updateCharacteristic(EveKWh, this.lastReceivedKwh);
+    this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
+    this.platform.updateEve(this.eveEnergyService, EveWatts, `${this.key}:EveWatts`, this.lastExportW, 'W');
+    this.platform.updateEve(this.eveEnergyService, EveKWh, `${this.key}:EveKWh`, this.lastReceivedKwh, 'kWh');
 
     this.historyService.addEntry({
       time: Math.round(Date.now() / 1000),

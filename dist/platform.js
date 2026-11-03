@@ -7,7 +7,8 @@ const gridMeterAccessory_1 = require("./gridMeterAccessory");
 const exportMeterAccessory_1 = require("./exportMeterAccessory");
 const eveCharacteristics_1 = require("./eveCharacteristics");
 const matterEnergy_1 = require("./matterEnergy");
-const updateThrottle_1 = require("./updateThrottle");
+const updatePolicy_1 = require("./updatePolicy");
+const powerSwitch_1 = require("./powerSwitch");
 const MIN_POLL_INTERVAL = 5;
 const DISCOVER_RETRY_MS = 30000;
 const NO_METER_RETRY_MS = 60000;
@@ -18,13 +19,15 @@ class EAGLEPlatform {
         this.log = log;
         this.api = api;
         this.accessories = [];
+        this.switchStats = new updatePolicy_1.UpdateStats();
         this.pollInFlight = false;
         this.backedOff = false;
         this.Service = api.hap.Service;
         this.Characteristic = api.hap.Characteristic;
         this.eveChars = (0, eveCharacteristics_1.createEveCharacteristics)(api);
         const eagleConfig = config;
-        this.wattsThrottle = new updateThrottle_1.UpdateThrottle((0, updateThrottle_1.resolveThrottleOptions)(eagleConfig), (message) => this.log.debug(message));
+        this.updatePolicy = (0, updatePolicy_1.resolveUpdatePolicy)(eagleConfig);
+        this.eveThrottle = new updatePolicy_1.EveUpdateThrottle(this.updatePolicy, new updatePolicy_1.UpdateStats(), (message) => this.log.debug(message));
         if (!eagleConfig.cloudId || !eagleConfig.installCode) {
             this.log.error('Missing required config: cloudId and installCode are required.');
             // Platform will do nothing; Homebridge still loads cleanly.
@@ -64,6 +67,16 @@ class EAGLEPlatform {
                 clearInterval(this.throttleStatsTimer);
             }
         });
+    }
+    /** Push an Eve power/energy value, subject to the evePowerUpdates mode. */
+    updateEve(service, characteristic, key, value, unit) {
+        if (this.eveThrottle.shouldSend(key, value, unit)) {
+            service.updateCharacteristic(characteristic, value);
+        }
+    }
+    /** On/off state for a power-derived On characteristic, with deadband and hold. */
+    createPowerSwitch(key) {
+        return new powerSwitch_1.PowerSwitch(key, this.updatePolicy.switchHoldSeconds, this.switchStats, (message) => this.log.debug(message));
     }
     configureAccessory(accessory) {
         this.log.info('Loading accessory from cache:', accessory.displayName);
@@ -146,16 +159,20 @@ class EAGLEPlatform {
         }
     }
     startPolling(meterAddress) {
-        if (this.wattsThrottle.options.enabled) {
-            const { minChangeWatts, minChangePercent, maxIntervalSeconds } = this.wattsThrottle.options;
-            this.log.info(`Eve Watts throttling enabled: min change max(${minChangeWatts} W, ${minChangePercent}%), ` +
-                `heartbeat ${maxIntervalSeconds}s`);
+        const p = this.updatePolicy;
+        const eveDesc = p.evePowerUpdates === 'throttled'
+            ? `throttled (max(${p.minChangeWatts} W, ${p.minChangePercent}%), ${p.minChangeKwh} kWh, every ${p.maxIntervalSeconds}s)`
+            : p.evePowerUpdates;
+        this.log.info(`Eve power updates: ${eveDesc}; On switch hold: ${p.switchHoldSeconds}s`);
+        if (p.evePowerUpdates !== 'live' || p.switchHoldSeconds > 0) {
             this.throttleStatsTimer = setInterval(() => {
-                const { sent, suppressed } = this.wattsThrottle.takeStats();
-                this.log.info(`Eve Watts updates in the last hour: ${sent} sent, ${suppressed} suppressed`);
+                const eve = this.eveThrottle.stats.take();
+                const sw = this.switchStats.take();
+                this.log.info(`HomeKit updates in the last hour: Eve power ${eve.sent} sent, ${eve.suppressed} suppressed; ` +
+                    `On switches ${sw.sent} sent, ${sw.suppressed} held`);
             }, THROTTLE_STATS_INTERVAL_MS);
         }
-        this.pollTimer = setInterval(async () => {
+        const poll = async () => {
             if (this.pollInFlight) {
                 this.log.debug('Poll skipped — previous request still in flight');
                 return;
@@ -203,7 +220,11 @@ class EAGLEPlatform {
             finally {
                 this.pollInFlight = false;
             }
-        }, this.pollIntervalMs);
+        };
+        // Poll once right away so HomeKit has the correct values on startup,
+        // rather than placeholders until the first interval elapses.
+        void poll();
+        this.pollTimer = setInterval(poll, this.pollIntervalMs);
     }
     enterBackoff(durationMs) {
         this.backedOff = true;

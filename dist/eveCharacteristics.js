@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EVE_KWH_UUID = exports.EVE_WATT_UUID = exports.EVE_ENERGY_SERVICE_UUID = void 0;
 exports.createEveCharacteristics = createEveCharacteristics;
+exports.setEveNotify = setEveNotify;
 exports.EVE_ENERGY_SERVICE_UUID = 'E863F10A-079E-48FF-8F27-9C2605A29F52';
 exports.EVE_WATT_UUID = 'E863F10D-079E-48FF-8F27-9C2605A29F52';
 exports.EVE_KWH_UUID = 'E863F10C-079E-48FF-8F27-9C2605A29F52';
@@ -39,5 +40,16 @@ function createEveCharacteristics(api) {
         EveWatts: EveWatts,
         EveKWh: EveKWh,
     };
+}
+/**
+ * Adds or removes NOTIFY on an Eve characteristic. Applied to every instance,
+ * including ones restored from the accessory cache (which keep their cached
+ * props rather than the class defaults), so switching evePowerUpdates to or
+ * from pollOnly takes effect on restart.
+ */
+function setEveNotify(characteristic, notify) {
+    characteristic.setProps({
+        perms: notify ? ["pr" /* Perms.PAIRED_READ */, "ev" /* Perms.NOTIFY */] : ["pr" /* Perms.PAIRED_READ */],
+    });
 }
 //# sourceMappingURL=eveCharacteristics.js.map

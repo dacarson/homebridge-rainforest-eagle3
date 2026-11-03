@@ -52,3 +52,15 @@ export function createEveCharacteristics(api: API): EveChars {
     EveKWh: EveKWh as unknown as EveCharClass,
   };
 }
+
+/**
+ * Adds or removes NOTIFY on an Eve characteristic. Applied to every instance,
+ * including ones restored from the accessory cache (which keep their cached
+ * props rather than the class defaults), so switching evePowerUpdates to or
+ * from pollOnly takes effect on restart.
+ */
+export function setEveNotify(characteristic: Characteristic, notify: boolean): void {
+  characteristic.setProps({
+    perms: notify ? [Perms.PAIRED_READ, Perms.NOTIFY] : [Perms.PAIRED_READ],
+  });
+}

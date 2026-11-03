@@ -59,32 +59,51 @@
         "default": false,
         "description": "Also publish the grid meter over Matter as a single bidirectional electrical sensor with live power and cumulative/periodic energy, feeding your Apple Home Energy view (requires iOS/iPadOS 27+ to view). Requires Homebridge 2.4.0+ with Matter enabled on this plugin's child bridge; skipped safely otherwise."
       },
-      "throttleUpdates": {
-        "title": "Throttle Power Updates",
-        "type": "boolean",
-        "default": true,
-        "description": "Only send an Eve Watts update to HomeKit when the power reading changes meaningfully, rather than on every poll. Eve kWh is never throttled."
+      "evePowerUpdates": {
+        "title": "Eve Power Updates",
+        "type": "string",
+        "default": "throttled",
+        "oneOf": [
+          { "title": "Throttled — push meaningful changes (recommended)", "enum": ["throttled"] },
+          { "title": "Poll only — never push (breaks Eve/Home+ triggers on these values)", "enum": ["pollOnly"] },
+          { "title": "Live — push every poll (pre-1.2.0 behavior)", "enum": ["live"] }
+        ],
+        "description": "How the Eve Watts and Eve kWh values are sent to HomeKit. Eve and Home+ automations can trigger on or check these values: Throttled keeps them working, accurate to within the thresholds below. Poll only gives the lowest traffic but automations triggered by these values will not fire, so use it only if no automation uses them."
       },
       "minChangeWatts": {
         "title": "Minimum Change (W)",
         "type": "number",
         "default": 25,
         "minimum": 0,
-        "description": "Send an update when power has changed by at least this many watts since the last value sent (or by Minimum Change %, whichever is larger)."
+        "description": "Throttled mode: push Eve Watts when power has changed by at least this many watts since the last push (or Minimum Change %, whichever is larger)."
       },
       "minChangePercent": {
         "title": "Minimum Change (%)",
         "type": "number",
         "default": 2,
         "minimum": 0,
-        "description": "Send an update when power has changed by at least this percentage of the last value sent (or by Minimum Change W, whichever is larger)."
+        "description": "Throttled mode: push Eve Watts when power has changed by at least this percentage of the last value pushed (or Minimum Change W, whichever is larger)."
+      },
+      "minChangeKwh": {
+        "title": "Minimum Change (kWh)",
+        "type": "number",
+        "default": 0.1,
+        "minimum": 0,
+        "description": "Throttled mode: push Eve kWh when the total has changed by at least this much since the last push."
       },
       "maxIntervalSeconds": {
         "title": "Maximum Interval (seconds)",
         "type": "number",
         "default": 300,
         "minimum": 0,
-        "description": "Send an update anyway once this long has passed since the last one, even if the change is small."
+        "description": "Throttled mode: push anyway once this long has passed since the last push, even if the change is small."
+      },
+      "switchHoldSeconds": {
+        "title": "On Switch Hold (seconds)",
+        "type": "number",
+        "default": 60,
+        "minimum": 0,
+        "description": "The meter's On switch (importing / exporting) changes only after the new state has held this long, so brief spikes don't flip it. Automations triggered by the switch can fire up to this long after the underlying change. 0 disables the hold."
       }
     },
     "required": ["cloudId", "installCode"]
@@ -106,22 +125,27 @@
     { "key": "matter" },
     {
       "type": "fieldset",
-      "title": "Throttling",
+      "title": "HomeKit Updates",
       "expandable": true,
       "items": [
-        { "key": "throttleUpdates" },
+        { "key": "evePowerUpdates" },
         {
           "key": "minChangeWatts",
-          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
+          "condition": { "functionBody": "return !model.evePowerUpdates || model.evePowerUpdates === 'throttled';" }
         },
         {
           "key": "minChangePercent",
-          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
+          "condition": { "functionBody": "return !model.evePowerUpdates || model.evePowerUpdates === 'throttled';" }
+        },
+        {
+          "key": "minChangeKwh",
+          "condition": { "functionBody": "return !model.evePowerUpdates || model.evePowerUpdates === 'throttled';" }
         },
         {
           "key": "maxIntervalSeconds",
-          "condition": { "functionBody": "return model.throttleUpdates !== false;" }
-        }
+          "condition": { "functionBody": "return !model.evePowerUpdates || model.evePowerUpdates === 'throttled';" }
+        },
+        { "key": "switchHoldSeconds" }
       ]
     }
   ]

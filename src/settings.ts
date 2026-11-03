@@ -12,8 +12,10 @@ export interface EAGLEConfig extends PlatformConfig {
   showExportMeter?: boolean;
   exportMeterName?: string;
   matter?: boolean;
-  throttleUpdates?: boolean;
+  evePowerUpdates?: 'throttled' | 'pollOnly' | 'live';
   minChangeWatts?: number;
   minChangePercent?: number;
+  minChangeKwh?: number;
   maxIntervalSeconds?: number;
+  switchHoldSeconds?: number;
 }
