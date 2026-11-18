@@ -6,6 +6,7 @@
 
 - **Eve history no longer wraps above 6.5 kW.** Eve stores history power as watts × 10 in a 16-bit field, so a 10-minute average above 6553.5 W wrapped to a much smaller value (for example 9183 W was stored as about 2630 W). History entries are now capped at 6553.5 W, and the plugin logs once when that happens. The live Eve Watts and Eve kWh values and the Matter values are not capped. See [Eve History](README.md#eve-history).
 - **Eve history entries are now time-weighted averages.** fakegato's built-in timer averaged readings by count, not by time. The plugin now writes one entry every 10 minutes with the time-weighted average power over those 10 minutes. Gaps from failed polls are left out of the average instead of being counted as the last reading.
+- `CHANGELOG.md` is now included in the npm package.
 
 ### Upgrading
 
