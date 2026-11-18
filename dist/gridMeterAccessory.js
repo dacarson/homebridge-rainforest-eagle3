@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GridMeterAccessory = void 0;
 const eveCharacteristics_1 = require("./eveCharacteristics");
+const eveHistory_1 = require("./eveHistory");
 class GridMeterAccessory {
     constructor(platform, accessory, 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,9 +53,19 @@ class GridMeterAccessory {
             .getCharacteristic(EveKWh)
             .onGet(() => this.lastDeliveredKwh);
         (0, eveCharacteristics_1.setEveNotify)(this.eveEnergyService.getCharacteristic(EveKWh), platform.eveThrottle.notify);
-        // fakegato-history: 'energy' type logs { time, power } in Watts
+        // fakegato-history 'energy' type. Its own timer averages by sample count, so it is
+        // disabled; EveHistoryRecorder writes a capped, time-weighted average every
+        // 10 minutes instead. See docs/eve-energy-history.md.
         this.historyService = new FakeGatoHistoryService('energy', accessory, {
             storage: 'fs',
+            disableTimer: true,
+        });
+        this.historyRecorder = new eveHistory_1.EveHistoryRecorder({
+            historyService: this.historyService,
+            pollIntervalMs: platform.pollIntervalMs,
+            name: platform.meterName,
+            log: platform.log,
+            onShutdown: (listener) => api.on('shutdown', listener),
         });
     }
     updateValues(reading) {
@@ -69,10 +80,7 @@ class GridMeterAccessory {
         this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
         this.platform.updateEve(this.eveEnergyService, EveWatts, `${this.key}:EveWatts`, this.lastDemandW, 'W');
         this.platform.updateEve(this.eveEnergyService, EveKWh, `${this.key}:EveKWh`, this.lastDeliveredKwh, 'kWh');
-        this.historyService.addEntry({
-            time: Math.round(Date.now() / 1000),
-            power: this.lastDemandW,
-        });
+        this.historyRecorder.sample(this.lastDemandW);
         this.platform.log.debug(`Updated: demand=${this.lastDemandW}W, delivered=${this.lastDeliveredKwh}kWh` +
             (reading.summation_received_kwh !== undefined
                 ? `, received=${reading.summation_received_kwh}kWh`

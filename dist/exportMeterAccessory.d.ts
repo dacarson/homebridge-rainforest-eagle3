@@ -5,6 +5,7 @@ export declare class ExportMeterAccessory {
     private readonly platform;
     private readonly eveEnergyService;
     private readonly historyService;
+    private readonly historyRecorder;
     private lastExportW;
     private lastReceivedKwh;
     private readonly key;

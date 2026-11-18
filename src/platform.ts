@@ -40,7 +40,7 @@ export class EAGLEPlatform implements DynamicPlatformPlugin {
   private readonly switchStats = new UpdateStats();
 
   private readonly client: EagleClient;
-  private readonly pollIntervalMs: number;
+  public readonly pollIntervalMs: number;
 
   private gridMeterAccessory?: GridMeterAccessory;
   private exportMeterAccessory?: ExportMeterAccessory;

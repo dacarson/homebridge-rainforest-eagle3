@@ -5,6 +5,7 @@ export declare class GridMeterAccessory {
     private readonly platform;
     private readonly eveEnergyService;
     private readonly historyService;
+    private readonly historyRecorder;
     private lastDemandW;
     private lastDeliveredKwh;
     private readonly key;

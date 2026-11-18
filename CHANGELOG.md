@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Eve history no longer wraps above 6.5 kW.** Eve stores history power as watts × 10 in a 16-bit field, so a 10-minute average above 6553.5 W wrapped to a much smaller value (for example 9183 W was stored as about 2630 W). History entries are now capped at 6553.5 W, and the plugin logs once when that happens. The live Eve Watts and Eve kWh values and the Matter values are not capped. See [Eve History](README.md#eve-history).
+- **Eve history entries are now time-weighted averages.** fakegato's built-in timer averaged readings by count, not by time. The plugin now writes one entry every 10 minutes with the time-weighted average power over those 10 minutes. Gaps from failed polls are left out of the average instead of being counted as the last reading.
+
+### Upgrading
+
+Entries recorded before this version may be wrong if your demand went above 6.5 kW. To remove them, open the meter's consumption history in the Eve app, tap **Edit**, and delete the bad entries. New entries keep arriving afterwards. Don't delete the plugin's fakegato history file (`<storage>/<hostname>_<name>_persist.json`) to reset history: Eve remembers the last entry number it downloaded, and a fresh file starts numbering again from 1, so Eve may show no new history for a long time.
+
 ## 1.2.0
 
 Reduces HomeKit and Matter event traffic. Previously every 15-second poll pushed a new value for each power and energy characteristic, generating hundreds of events an hour.

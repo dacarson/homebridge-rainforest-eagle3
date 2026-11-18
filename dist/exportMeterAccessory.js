@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ExportMeterAccessory = void 0;
 const eveCharacteristics_1 = require("./eveCharacteristics");
+const eveHistory_1 = require("./eveHistory");
 class ExportMeterAccessory {
     constructor(platform, accessory, 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,8 +46,19 @@ class ExportMeterAccessory {
             .getCharacteristic(EveKWh)
             .onGet(() => this.lastReceivedKwh);
         (0, eveCharacteristics_1.setEveNotify)(this.eveEnergyService.getCharacteristic(EveKWh), platform.eveThrottle.notify);
+        // fakegato-history 'energy' type. Its own timer averages by sample count, so it is
+        // disabled; EveHistoryRecorder writes a capped, time-weighted average every
+        // 10 minutes instead. See docs/eve-energy-history.md.
         this.historyService = new FakeGatoHistoryService('energy', accessory, {
             storage: 'fs',
+            disableTimer: true,
+        });
+        this.historyRecorder = new eveHistory_1.EveHistoryRecorder({
+            historyService: this.historyService,
+            pollIntervalMs: platform.pollIntervalMs,
+            name: platform.exportMeterName,
+            log: platform.log,
+            onShutdown: (listener) => api.on('shutdown', listener),
         });
     }
     updateValues(reading) {
@@ -61,10 +73,7 @@ class ExportMeterAccessory {
         this.eveEnergyService.updateCharacteristic(Characteristic.OutletInUse, true);
         this.platform.updateEve(this.eveEnergyService, EveWatts, `${this.key}:EveWatts`, this.lastExportW, 'W');
         this.platform.updateEve(this.eveEnergyService, EveKWh, `${this.key}:EveKWh`, this.lastReceivedKwh, 'kWh');
-        this.historyService.addEntry({
-            time: Math.round(Date.now() / 1000),
-            power: this.lastExportW,
-        });
+        this.historyRecorder.sample(this.lastExportW);
     }
 }
 exports.ExportMeterAccessory = ExportMeterAccessory;

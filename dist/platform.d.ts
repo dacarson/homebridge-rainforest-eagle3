@@ -18,7 +18,7 @@ export declare class EAGLEPlatform implements DynamicPlatformPlugin {
     readonly eveThrottle: EveUpdateThrottle;
     private readonly switchStats;
     private readonly client;
-    private readonly pollIntervalMs;
+    readonly pollIntervalMs: number;
     private gridMeterAccessory?;
     private exportMeterAccessory?;
     private gridMatterBridge?;

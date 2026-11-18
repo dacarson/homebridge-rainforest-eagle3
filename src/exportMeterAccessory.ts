@@ -3,11 +3,13 @@ import { EAGLEPlatform } from './platform';
 import { MeterReading } from './eagleClient';
 import { EVE_ENERGY_SERVICE_UUID, setEveNotify } from './eveCharacteristics';
 import { PowerSwitch } from './powerSwitch';
+import { EveHistoryRecorder } from './eveHistory';
 
 export class ExportMeterAccessory {
   private readonly eveEnergyService: Service;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly historyService: any;
+  private readonly historyRecorder: EveHistoryRecorder;
 
   private lastExportW = 0;
   private lastReceivedKwh = 0;
@@ -68,8 +70,19 @@ export class ExportMeterAccessory {
       .onGet(() => this.lastReceivedKwh);
     setEveNotify(this.eveEnergyService.getCharacteristic(EveKWh), platform.eveThrottle.notify);
 
+    // fakegato-history 'energy' type. Its own timer averages by sample count, so it is
+    // disabled; EveHistoryRecorder writes a capped, time-weighted average every
+    // 10 minutes instead. See docs/eve-energy-history.md.
     this.historyService = new FakeGatoHistoryService('energy', accessory, {
       storage: 'fs',
+      disableTimer: true,
+    });
+    this.historyRecorder = new EveHistoryRecorder({
+      historyService: this.historyService,
+      pollIntervalMs: platform.pollIntervalMs,
+      name: platform.exportMeterName,
+      log: platform.log,
+      onShutdown: (listener) => api.on('shutdown', listener),
     });
   }
 
@@ -88,9 +101,6 @@ export class ExportMeterAccessory {
     this.platform.updateEve(this.eveEnergyService, EveWatts, `${this.key}:EveWatts`, this.lastExportW, 'W');
     this.platform.updateEve(this.eveEnergyService, EveKWh, `${this.key}:EveKWh`, this.lastReceivedKwh, 'kWh');
 
-    this.historyService.addEntry({
-      time: Math.round(Date.now() / 1000),
-      power: this.lastExportW,
-    });
+    this.historyRecorder.sample(this.lastExportW);
   }
 }

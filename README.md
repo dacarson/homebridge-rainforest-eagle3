@@ -146,7 +146,7 @@ Eve Watts and Eve kWh are Eve custom characteristics. Besides the Eve app showin
 - **pollOnly** removes notify support from these characteristics and never pushes them. The newest reading is still returned whenever an app reads the value, so the Eve app shows current figures when opened.
 - **live** pushes every reading.
 
-In every mode, reads return the newest reading, and Eve history (fakegato) still logs every poll.
+In every mode, reads return the newest reading, and Eve history still records every reading (see [Eve History](#eve-history)).
 
 #### On switches
 
@@ -195,6 +195,19 @@ The device is also reachable at `eagle-<cloudId>.local` via mDNS if you prefer n
 The two accessories are mutually exclusive — at any given moment only one shows a non-zero wattage. Both render as smart plugs in Apple Home; the Eve app shows up to 7 days of history for each.
 
 **Note on `CurrentSummationReceived`:** Many meters and firmware versions do not report this variable. When it is absent, the export kWh characteristic stays at `0`, but the real-time export watts (derived from a negative `InstantaneousDemand`) still work correctly.
+
+### Eve History
+
+Each meter writes one history entry every 10 minutes, holding the average power over those 10 minutes weighted by time. If polls fail, the average covers only the time that had readings, and a 10-minute window with no readings at all gets no entry.
+
+**Eve's history graph and history kWh are capped at 6.5 kW.** Eve stores history power in a 16-bit field (watts × 10), so 6553.5 W is the largest value it can hold. Any 10-minute average above that is recorded as 6553.5 W, and the plugin logs this once. Before this was fixed, values above the cap wrapped around to a small number. For a 10-minute average of 7.7 kW, Eve's history shows about 15% too little; at 9.6 kW about 32%, at 11.5 kW about 43%, and at 19.2 kW about 66%.
+
+The cap does **not** apply to:
+
+- the live **Eve Watts** and **Eve kWh** values (Eve kWh is the meter's own lifetime total)
+- the [Matter](#apple-home-energy--matter) values used by Apple Home Energy
+
+Use those for accurate totals.
 
 ---
 

@@ -3,11 +3,13 @@ import { EAGLEPlatform } from './platform';
 import { MeterReading } from './eagleClient';
 import { EVE_ENERGY_SERVICE_UUID, setEveNotify } from './eveCharacteristics';
 import { PowerSwitch } from './powerSwitch';
+import { EveHistoryRecorder } from './eveHistory';
 
 export class GridMeterAccessory {
   private readonly eveEnergyService: Service;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private readonly historyService: any;
+  private readonly historyRecorder: EveHistoryRecorder;
 
   private lastDemandW = 0;
   private lastDeliveredKwh = 0;
@@ -75,9 +77,19 @@ export class GridMeterAccessory {
       .onGet(() => this.lastDeliveredKwh);
     setEveNotify(this.eveEnergyService.getCharacteristic(EveKWh), platform.eveThrottle.notify);
 
-    // fakegato-history: 'energy' type logs { time, power } in Watts
+    // fakegato-history 'energy' type. Its own timer averages by sample count, so it is
+    // disabled; EveHistoryRecorder writes a capped, time-weighted average every
+    // 10 minutes instead. See docs/eve-energy-history.md.
     this.historyService = new FakeGatoHistoryService('energy', accessory, {
       storage: 'fs',
+      disableTimer: true,
+    });
+    this.historyRecorder = new EveHistoryRecorder({
+      historyService: this.historyService,
+      pollIntervalMs: platform.pollIntervalMs,
+      name: platform.meterName,
+      log: platform.log,
+      onShutdown: (listener) => api.on('shutdown', listener),
     });
   }
 
@@ -96,10 +108,7 @@ export class GridMeterAccessory {
     this.platform.updateEve(this.eveEnergyService, EveWatts, `${this.key}:EveWatts`, this.lastDemandW, 'W');
     this.platform.updateEve(this.eveEnergyService, EveKWh, `${this.key}:EveKWh`, this.lastDeliveredKwh, 'kWh');
 
-    this.historyService.addEntry({
-      time: Math.round(Date.now() / 1000),
-      power: this.lastDemandW,
-    });
+    this.historyRecorder.sample(this.lastDemandW);
 
     this.platform.log.debug(
       `Updated: demand=${this.lastDemandW}W, delivered=${this.lastDeliveredKwh}kWh` +
